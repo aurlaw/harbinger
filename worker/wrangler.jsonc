@@ -16,7 +16,6 @@
 		{
 			"binding": "DB",
 			"database_name": "harbinger",
-			// PLACEHOLDER — replace with the id printed by `npx wrangler d1 create harbinger`
 			"database_id": "ae584a0b-6eff-4a0d-9c27-cfdfbef20631",
 			"migrations_dir": "migrations"
 		}

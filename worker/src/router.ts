@@ -1,10 +1,24 @@
 import { health } from "./health";
 import { errorResponse } from "./http";
+import { listFilms, setOverride, upsertFilms } from "./library/films";
+import { latestImport, runImport } from "./library/imports";
+import { recordMatches } from "./library/matches";
 
 type Handler = (request: Request, env: Env) => Promise<Response>;
 
 const routes = new Map<string, Map<string, Handler>>([
   ["/health", new Map([["GET", health]])],
+  [
+    "/library/films",
+    new Map([
+      ["GET", listFilms],
+      ["POST", upsertFilms],
+    ]),
+  ],
+  ["/library/films/matches", new Map([["POST", recordMatches]])],
+  ["/library/films/override", new Map([["PUT", setOverride]])],
+  ["/library/import", new Map([["POST", runImport]])],
+  ["/library/imports/latest", new Map([["GET", latestImport]])],
 ]);
 
 export async function route(request: Request, env: Env): Promise<Response> {
