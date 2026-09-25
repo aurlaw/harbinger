@@ -1,0 +1,30 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "harbinger",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-08-15",
+	// The custom domain is the only public entry point.
+	"workers_dev": false,
+	"preview_urls": false,
+	"routes": [
+		{
+			"pattern": "harbinger-api.aurlaw.dev",
+			"custom_domain": true
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "harbinger",
+			// PLACEHOLDER — replace with the id printed by `npx wrangler d1 create harbinger`
+			"database_id": "ae584a0b-6eff-4a0d-9c27-cfdfbef20631",
+			"migrations_dir": "migrations"
+		}
+	],
+	// Set locally in .dev.vars, remotely with `npx wrangler secret put API_KEY`.
+	"secrets": {
+		"required": [
+			"API_KEY"
+		]
+	}
+}

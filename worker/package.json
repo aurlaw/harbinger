@@ -1,0 +1,18 @@
+{
+  "name": "harbinger-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test",
+    "types": "wrangler types",
+    "db:migrate:local": "wrangler d1 migrations apply harbinger --local"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.141.0"
+  }
+}
