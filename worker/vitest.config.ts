@@ -12,6 +12,7 @@ export default defineConfig(async () => {
           bindings: {
             API_KEY: "test-api-key",
             TMDB_READ_TOKEN: "test-tmdb-token",
+            ANTHROPIC_API_KEY: "test-anthropic-key",
             TEST_MIGRATIONS: migrations,
           },
         },

@@ -36,6 +36,7 @@ describe("migration 0001", () => {
         `SELECT type, name FROM sqlite_master
          WHERE type IN ('table','index','view')
            AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name != 'd1_migrations'
+           AND tbl_name NOT IN ('conversations', 'messages', 'recommendations', 'decisions') -- 0002
          ORDER BY type, name`,
       )
       .all<{ type: string; name: string }>();

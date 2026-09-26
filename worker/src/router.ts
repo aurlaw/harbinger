@@ -1,3 +1,4 @@
+import { appendMessage, createConversation, getConversation, listModels } from "./conversations/handlers";
 import { health } from "./health";
 import { errorResponse } from "./http";
 import { listFilms, setOverride, upsertFilms } from "./library/films";
@@ -23,11 +24,15 @@ const routes = new Map<string, Map<string, Handler>>([
   ["/library/import", new Map([["POST", runImport]])],
   ["/library/imports/latest", new Map([["GET", latestImport]])],
   ["/tmdb/search", new Map([["GET", searchMovies]])],
+  ["/models", new Map([["GET", listModels]])],
+  ["/conversations", new Map([["POST", createConversation]])],
 ]);
 
 // Parameterized routes, checked after the static map. Named groups become params.
 const paramRoutes: { pattern: RegExp; methods: Map<string, Handler> }[] = [
   { pattern: /^\/tmdb\/movie\/(?<id>[^/]+)$/, methods: new Map([["GET", movieDetails]]) },
+  { pattern: /^\/conversations\/(?<id>[^/]+)$/, methods: new Map([["GET", getConversation]]) },
+  { pattern: /^\/conversations\/(?<id>[^/]+)\/messages$/, methods: new Map([["POST", appendMessage]]) },
 ];
 
 function match(pathname: string): { methods: Map<string, Handler>; params: Params } | null {

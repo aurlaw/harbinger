@@ -20,11 +20,19 @@
 			"migrations_dir": "migrations"
 		}
 	],
+	"vars": {
+		// Swap to an AI Gateway URL later with no code change.
+		"ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+		// Comma-separated allowlist; CLAUDE_DEFAULT_MODEL must be one of these.
+		"CLAUDE_MODELS": "claude-haiku-4-5-20251001,claude-sonnet-5,claude-opus-5-5",
+		"CLAUDE_DEFAULT_MODEL": "claude-sonnet-5"
+	},
 	// Set locally in .dev.vars, remotely with `npx wrangler secret put <NAME>`.
 	"secrets": {
 		"required": [
 			"API_KEY",
-			"TMDB_READ_TOKEN"
+			"TMDB_READ_TOKEN",
+			"ANTHROPIC_API_KEY"
 		]
 	}
 }
