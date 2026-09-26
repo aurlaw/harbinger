@@ -20,10 +20,11 @@
 			"migrations_dir": "migrations"
 		}
 	],
-	// Set locally in .dev.vars, remotely with `npx wrangler secret put API_KEY`.
+	// Set locally in .dev.vars, remotely with `npx wrangler secret put <NAME>`.
 	"secrets": {
 		"required": [
-			"API_KEY"
+			"API_KEY",
+			"TMDB_READ_TOKEN"
 		]
 	}
 }

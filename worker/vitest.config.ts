@@ -11,6 +11,7 @@ export default defineConfig(async () => {
         miniflare: {
           bindings: {
             API_KEY: "test-api-key",
+            TMDB_READ_TOKEN: "test-tmdb-token",
             TEST_MIGRATIONS: migrations,
           },
         },
