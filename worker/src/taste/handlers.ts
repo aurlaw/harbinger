@@ -9,7 +9,8 @@ import { DRAFT_INSTRUCTIONS, DRAFT_MAX_TOKENS, DRAFT_SCHEMA, draftUserTurn, pars
 
 const MAX_CONTENT_LENGTH = 4000;
 
-const PROFILE_COLUMNS = "content, based_on_import_id, updated_at";
+/** The profile shape returned by the taste-profile endpoints and GET /sync. */
+export const PROFILE_COLUMNS = "content, based_on_import_id, updated_at";
 
 // Single row (id = 1); based_on_import_id is the latest import at save time.
 const UPSERT = `

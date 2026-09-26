@@ -6,6 +6,7 @@ import { listFilms, setOverride, upsertFilms } from "./library/films";
 import { latestImport, runImport } from "./library/imports";
 import { recordMatches } from "./library/matches";
 import { movieDetails } from "./tmdb/movie";
+import { sync } from "./sync/handlers";
 import { draftTasteProfile, getTasteProfile, putTasteProfile } from "./taste/handlers";
 import { searchMovies } from "./tmdb/search";
 
@@ -36,6 +37,7 @@ const routes = new Map<string, Map<string, Handler>>([
     ]),
   ],
   ["/taste-profile/draft", new Map([["POST", draftTasteProfile]])],
+  ["/sync", new Map([["GET", sync]])],
 ]);
 
 // Parameterized routes, checked after the static map. Named groups become params.

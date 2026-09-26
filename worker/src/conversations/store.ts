@@ -176,13 +176,16 @@ export function toApiConversation(c: ConversationRow) {
   };
 }
 
+/** A message's `content`: its parsed content_json, as every endpoint returns it. */
+export const messageContent = (m: MessageRow): unknown => JSON.parse(m.content_json);
+
 export function toApiMessage(m: MessageRow, recommendations: RecommendationRow[]) {
   const message = {
     id: m.id,
     seq: m.seq,
     role: m.role,
     kind: m.kind,
-    content: JSON.parse(m.content_json) as unknown,
+    content: messageContent(m),
     created_at: m.created_at,
   };
   if (m.kind !== "recommendations") return message;

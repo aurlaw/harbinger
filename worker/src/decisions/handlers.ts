@@ -21,6 +21,9 @@ function validateDecision(body: unknown): DecisionInput {
   };
 }
 
+/** The decision shape returned by PUT /decisions and GET /sync. */
+export const DECISION_COLUMNS = "tmdb_id, decision, conversation_id, decided_at";
+
 // One row per film; changing a decision (or re-deciding a maybe in another
 // conversation, which moves its scope) is the same upsert.
 const UPSERT = `
@@ -30,7 +33,7 @@ const UPSERT = `
     decision = excluded.decision,
     conversation_id = excluded.conversation_id,
     decided_at = excluded.decided_at
-  RETURNING tmdb_id, decision, conversation_id, decided_at`;
+  RETURNING ${DECISION_COLUMNS}`;
 
 export async function putDecision(request: Request, env: Env, params: Record<string, string>): Promise<Response> {
   const id = params.id ?? "";
