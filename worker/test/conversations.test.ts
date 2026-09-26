@@ -324,6 +324,51 @@ describe("Claude request", () => {
   });
 });
 
+describe("taste profile in the recommendation prompt", () => {
+  const HEADINGS = [
+    "## Taste profile",
+    "## Horror ratings",
+    "## Never recommend (already seen)",
+    "## Never recommend (already on watchlist)",
+  ];
+
+  it("orders sections: instructions, taste profile, ratings, seen, watchlist; placeholder without a profile", async () => {
+    const world = mockWorld(CATALOG, [claudeReply(question("Q?"))]);
+    await ok(await start({ text: "hi" }));
+    const system = world.claudeCalls[0]!.body.system;
+
+    const positions = HEADINGS.map((h) => system.indexOf(`\n${h}`));
+    expect(positions.every((p) => p > 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    expect(system.startsWith("You recommend horror films")).toBe(true);
+    expect(system).toContain("(No taste profile yet — rely on the ratings.)");
+    expect(system).toContain("1. The current request in this conversation wins for that request.");
+    expect(system).toContain("2. The taste profile is the person's own correction");
+    expect(system).toContain("3. The ratings are the evidence for everything the profile doesn't cover.");
+    expect(system).toContain('The "Never recommend" lists are exclusions only — never a signal of taste.');
+  });
+
+  it("includes the saved profile; byte-identical across turns, different after a PUT /taste-profile", async () => {
+    await ok(await send("PUT", "/taste-profile", { content: "## Loves\nSlow dread." }));
+    const world = mockWorld(CATALOG, []);
+    const first = await startWithQuestion(world);
+    world.replies.push(claudeReply(question("Era?")));
+    await ok(await reply(first.conversation.id, { text: "Short" }));
+
+    const [a, b] = world.claudeCalls.map((c) => c.body.system);
+    expect(a).toContain("<taste_profile>\n## Loves\nSlow dread.\n</taste_profile>");
+    expect(a).not.toContain("No taste profile yet");
+    expect(b).toBe(a);
+
+    await ok(await send("PUT", "/taste-profile", { content: "## Loves\nFolk horror." }));
+    world.replies.push(claudeReply(recs(pick("Noroi", 2005))));
+    await ok(await reply(first.conversation.id, { text: "Old" }));
+    const c = world.claudeCalls[2]!.body.system;
+    expect(c).not.toBe(a);
+    expect(c).toContain("Folk horror.");
+  });
+});
+
 describe("response handling", () => {
   it("stores a question, increments question_rounds, and caps chips at 4", async () => {
     mockWorld(CATALOG, [claudeReply(question("  How long?  ", ["a", " b ", "", "c", "d", "e"]))]);

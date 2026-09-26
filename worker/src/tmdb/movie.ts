@@ -51,7 +51,7 @@ export function toMovieDetails(raw: unknown): MovieDetails {
 }
 
 // Positive integer: digits only, no leading zero, at most 10 digits.
-const TMDB_ID = /^[1-9]\d{0,9}$/;
+export const TMDB_ID = /^[1-9]\d{0,9}$/;
 
 export async function movieDetails(_request: Request, env: Env, params: Record<string, string>): Promise<Response> {
   const id = params.id ?? "";

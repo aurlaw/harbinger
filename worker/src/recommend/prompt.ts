@@ -2,13 +2,16 @@ import type { ClaudeMessage } from "../claude/client";
 import { MAX_CHIPS, MAX_PICKS } from "./schema";
 
 // System prompt + message assembly. The system prompt depends only on library
-// state, so it stays byte-identical across a conversation's turns (cache hits).
-// Per-turn steering (recommend now) goes on the user turn, never in here.
+// + taste profile state, so it stays byte-identical across a conversation's
+// turns (cache hits). Per-turn steering (recommend now) goes on the user turn,
+// never in here.
 
 export interface LibraryPrompt {
   horrorRatings: { name: string; year: number; half_stars: number }[];
   seen: { name: string; year: number }[];
   watchlist: { name: string; year: number }[];
+  /** The saved taste profile's content, or null when none is saved. */
+  tasteProfile: string | null;
 }
 
 // Every ORDER BY is total so identical library state yields an identical prompt.
@@ -31,20 +34,28 @@ const WATCHLIST = `
   FROM watchlist w JOIN films f ON f.letterboxd_uri = w.letterboxd_uri
   ORDER BY f.name, f.year, f.letterboxd_uri`;
 
+const TASTE_PROFILE = "SELECT content FROM taste_profile WHERE id = 1";
+
 export async function loadLibraryPrompt(db: D1Database): Promise<LibraryPrompt> {
-  const [ratings, seen, watchlist] = await db.batch([
+  const [ratings, seen, watchlist, profile] = await db.batch([
     db.prepare(HORROR_RATINGS),
     db.prepare(SEEN),
     db.prepare(WATCHLIST),
+    db.prepare(TASTE_PROFILE),
   ]);
   return {
     horrorRatings: (ratings?.results ?? []) as LibraryPrompt["horrorRatings"],
     seen: (seen?.results ?? []) as LibraryPrompt["seen"],
     watchlist: (watchlist?.results ?? []) as LibraryPrompt["watchlist"],
+    tasteProfile: (profile?.results[0] as { content: string } | undefined)?.content ?? null,
   };
 }
 
-const INSTRUCTIONS = `You recommend horror films to one person. Base every recommendation only on their ratings listed below — they are the sole signal of this person's taste.
+const INSTRUCTIONS = `You recommend horror films to one person. You have two signals of their taste, both below: their taste profile (written or approved by them) and their ratings. When signals conflict, follow this priority:
+1. The current request in this conversation wins for that request.
+2. The taste profile is the person's own correction — it overrides patterns you would infer from the ratings.
+3. The ratings are the evidence for everything the profile doesn't cover.
+The "Never recommend" lists are exclusions only — never a signal of taste.
 
 Each reply is exactly one of:
 - kind "question": one clarifying question in "question", with 2–${MAX_CHIPS} short tappable answers in "chips" (a few words each). Leave "picks" empty.
@@ -58,29 +69,37 @@ Recommendations:
 - Never recommend a film from either "Never recommend" list below, or any film already recommended earlier in this conversation.
 - "title" and "year": the exact title and original release year as listed on TMDB.
 - "why_short": one line, about 120 characters, for a card.
-- "why_full": 2–4 sentences grounded in specific patterns in their ratings. Name the rated films the pick relates to.
+- "why_full": 2–4 sentences grounded in specific patterns in their taste profile and ratings. Name the rated films the pick relates to.
 - Prefer less obvious picks over the most famous titles in the genre, unless the request calls for classics.`;
 
 const film = (f: { name: string; year: number }) => `${f.name} (${f.year})`;
 const stars = (halfStars: number) => `★${halfStars / 2}`;
 const list = (lines: string[]) => (lines.length > 0 ? lines.join("\n") : "(none)");
 
+/** Horror ratings as `Title (Year) — ★4.5`, one per line. Shared with the taste-profile draft. */
+export const formatRatings = (ratings: LibraryPrompt["horrorRatings"]) =>
+  list(ratings.map((f) => `${film(f)} — ${stars(f.half_stars)}`));
+
+export const NO_TASTE_PROFILE = "(No taste profile yet — rely on the ratings.)";
+
 /**
- * Builds the system prompt. `tasteProfile` is the W5 hook: when present it
- * becomes its own section after the exclusion lists; absent, it is omitted.
+ * Builds the system prompt: instructions → taste profile → horror ratings →
+ * never-recommend (seen) → never-recommend (watchlist). The profile section is
+ * always present so the prompt shape is stable.
  */
-export function buildSystemPrompt(library: LibraryPrompt, tasteProfile?: string): string {
+export function buildSystemPrompt(library: LibraryPrompt): string {
   const sections = [
     INSTRUCTIONS,
-    `## Horror ratings (their taste — ★0.5 to ★5)\n${list(
-      library.horrorRatings.map((f) => `${film(f)} — ${stars(f.half_stars)}`),
-    )}`,
+    // Tags keep the profile's own "## Loves" etc. from reading as sibling sections.
+    `## Taste profile (their own words — overrides patterns inferred from ratings)\n${
+      library.tasteProfile === null ? NO_TASTE_PROFILE : `<taste_profile>\n${library.tasteProfile}\n</taste_profile>`
+    }`,
+    `## Horror ratings (their taste — ★0.5 to ★5)\n${formatRatings(library.horrorRatings)}`,
     `## Never recommend (already seen)\n${list(library.seen.map(film))}`,
     `## Never recommend (already on watchlist)\nExclusion only — not a signal of taste.\n${list(
       library.watchlist.map(film),
     )}`,
   ];
-  if (tasteProfile) sections.push(`## Taste profile\n${tasteProfile}`);
   return sections.join("\n\n");
 }
 

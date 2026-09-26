@@ -1,10 +1,12 @@
 import { appendMessage, createConversation, getConversation, listModels } from "./conversations/handlers";
+import { putDecision } from "./decisions/handlers";
 import { health } from "./health";
 import { errorResponse } from "./http";
 import { listFilms, setOverride, upsertFilms } from "./library/films";
 import { latestImport, runImport } from "./library/imports";
 import { recordMatches } from "./library/matches";
 import { movieDetails } from "./tmdb/movie";
+import { draftTasteProfile, getTasteProfile, putTasteProfile } from "./taste/handlers";
 import { searchMovies } from "./tmdb/search";
 
 type Params = Record<string, string>;
@@ -26,6 +28,14 @@ const routes = new Map<string, Map<string, Handler>>([
   ["/tmdb/search", new Map([["GET", searchMovies]])],
   ["/models", new Map([["GET", listModels]])],
   ["/conversations", new Map([["POST", createConversation]])],
+  [
+    "/taste-profile",
+    new Map([
+      ["GET", getTasteProfile],
+      ["PUT", putTasteProfile],
+    ]),
+  ],
+  ["/taste-profile/draft", new Map([["POST", draftTasteProfile]])],
 ]);
 
 // Parameterized routes, checked after the static map. Named groups become params.
@@ -33,6 +43,7 @@ const paramRoutes: { pattern: RegExp; methods: Map<string, Handler> }[] = [
   { pattern: /^\/tmdb\/movie\/(?<id>[^/]+)$/, methods: new Map([["GET", movieDetails]]) },
   { pattern: /^\/conversations\/(?<id>[^/]+)$/, methods: new Map([["GET", getConversation]]) },
   { pattern: /^\/conversations\/(?<id>[^/]+)\/messages$/, methods: new Map([["POST", appendMessage]]) },
+  { pattern: /^\/decisions\/(?<id>[^/]+)$/, methods: new Map([["PUT", putDecision]]) },
 ];
 
 function match(pathname: string): { methods: Map<string, Handler>; params: Params } | null {

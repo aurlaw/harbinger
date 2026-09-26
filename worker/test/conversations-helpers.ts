@@ -175,10 +175,13 @@ export const pick = (title: string, year: number) => ({
 
 export const recs = (...picks: unknown[]) => ({ kind: "recommendations", question: "", chips: [], picks });
 
-/** Each conversation-test file starts from empty tables. */
+/** Each conversation-test file starts from empty tables (W4 + W5 + library). */
 export async function clearAll(): Promise<void> {
   await env.DB.batch(
-    ["decisions", "recommendations", "messages", "conversations"].map((t) => env.DB.prepare(`DELETE FROM ${t}`)),
+    // taste_profile first: it references imports.
+    ["taste_profile", "decisions", "recommendations", "messages", "conversations"].map((t) =>
+      env.DB.prepare(`DELETE FROM ${t}`),
+    ),
   );
   await clearLibrary();
 }

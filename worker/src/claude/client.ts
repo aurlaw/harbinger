@@ -3,7 +3,7 @@ import { errorResponse } from "../http";
 // The only code that talks to Anthropic. Native fetch — no SDK (zero runtime deps).
 
 const ANTHROPIC_VERSION = "2023-06-01";
-const MAX_TOKENS = 4096;
+const DEFAULT_MAX_TOKENS = 4096;
 const TIMEOUT_MS = 90_000;
 const RETRY_DELAY_MS = 1_000;
 
@@ -70,6 +70,8 @@ export interface ClaudeRequest {
   messages: ClaudeMessage[];
   /** JSON schema for output_config.format. Keep it constant — changing it invalidates the cache. */
   schema: unknown;
+  /** Defaults to 4096 (recommendations). */
+  maxTokens?: number;
 }
 
 interface MessagesResponse {
@@ -90,7 +92,7 @@ interface MessagesResponse {
 export async function callClaude(config: ClaudeConfig, req: ClaudeRequest): Promise<unknown> {
   const body = JSON.stringify({
     model: req.model,
-    max_tokens: MAX_TOKENS,
+    max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
     system: req.system,
     messages: req.messages,
     output_config: { format: { type: "json_schema", schema: req.schema } },

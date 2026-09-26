@@ -93,17 +93,14 @@ describe("titleFrom", () => {
 });
 
 describe("prompt", () => {
-  it("formats ratings as half-star values and marks empty lists", () => {
-    const system = buildSystemPrompt({
-      horrorRatings: [{ name: "Hereditary", year: 2018, half_stars: 9 }],
-      seen: [],
-      watchlist: [],
-    });
+  it("formats ratings as half-star values, marks empty lists, and always has a profile section", () => {
+    const library = { horrorRatings: [{ name: "Hereditary", year: 2018, half_stars: 9 }], seen: [], watchlist: [] };
+    const system = buildSystemPrompt({ ...library, tasteProfile: null });
     expect(system).toContain("Hereditary (2018) — ★4.5");
     expect(system).toContain("## Never recommend (already seen)\n(none)");
-    expect(system).not.toContain("Taste profile");
-    expect(buildSystemPrompt({ horrorRatings: [], seen: [], watchlist: [] }, "Likes dread.")).toContain(
-      "## Taste profile\nLikes dread.",
+    expect(system).toContain("(No taste profile yet — rely on the ratings.)");
+    expect(buildSystemPrompt({ ...library, tasteProfile: "## Loves\nDread." })).toContain(
+      "<taste_profile>\n## Loves\nDread.\n</taste_profile>",
     );
   });
 
