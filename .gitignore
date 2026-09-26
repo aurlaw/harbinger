@@ -64,3 +64,6 @@ fastlane/test_output
 _data/*
 .DS_Store
 *.env
+
+# CLI build output
+bin/
