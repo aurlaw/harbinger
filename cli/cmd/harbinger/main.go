@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -11,17 +12,31 @@ import (
 	"path/filepath"
 
 	"github.com/aurlaw/harbinger/cli/internal/export"
+	"github.com/aurlaw/harbinger/cli/internal/importer"
+	"github.com/aurlaw/harbinger/cli/internal/prompt"
 )
 
 const usage = `usage:
+  harbinger import [--force] [--no-interactive] [--retry-unmatched] <export.zip>
   harbinger import --dry-run [--json] <export.zip>
+  harbinger films [--status pending|matched|ambiguous|unmatched] [--horror | --not-horror] [--search <text>]
+  harbinger override include|exclude|clear <letterboxd-uri>
 
 commands:
-  import   parse a Letterboxd export ZIP
+  import     import a Letterboxd export ZIP into the Worker and match new films on TMDB
+  films      list library films (to find URIs for overrides)
+  override   set or clear a film's genre override
 
 import flags:
-  --dry-run   parse and validate only (required until Phase C2)
-  --json      with --dry-run, print the would-be Worker payloads as JSON
+  --dry-run           parse and validate only; offline, no API key needed
+  --json              with --dry-run, print the would-be Worker payloads as JSON
+  --force             allow an import that would empty a snapshot table
+  --no-interactive    never prompt; undecided films are recorded ambiguous/unmatched
+  --retry-unmatched   also re-attempt ambiguous and unmatched films
+
+environment:
+  HARBINGER_API_KEY   Worker API key (required for everything except --dry-run)
+  HARBINGER_API_URL   Worker base URL (default https://harbinger-api.aurlaw.dev)
 `
 
 // Exit codes.
@@ -35,7 +50,25 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// deps are the process-level inputs, injectable for tests.
+type deps struct {
+	stdin          io.Reader
+	stdout, stderr io.Writer
+	getenv         func(string) string
+	isTerminal     func() bool // stdin is a character device
+}
+
 func run(args []string, stdout, stderr io.Writer) int {
+	return runWith(args, deps{stdin: os.Stdin, stdout: stdout, stderr: stderr, getenv: os.Getenv, isTerminal: stdinIsTerminal})
+}
+
+func stdinIsTerminal() bool {
+	info, err := os.Stdin.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+func runWith(args []string, d deps) int {
+	stdout, stderr := d.stdout, d.stderr
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return exitUsage
@@ -45,36 +78,42 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, usage)
 		return exitOK
 	case "import":
-		return runImport(args[1:], stdout, stderr)
+		return runImport(args[1:], d)
+	case "films":
+		return runFilms(args[1:], d)
+	case "override":
+		return runOverride(args[1:], d)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n%s", args[0], usage)
 		return exitUsage
 	}
 }
 
-func runImport(args []string, stdout, stderr io.Writer) int {
+func runImport(args []string, d deps) int {
+	stdout, stderr := d.stdout, d.stderr
 	fs := flag.NewFlagSet("import", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	dryRun := fs.Bool("dry-run", false, "")
 	asJSON := fs.Bool("json", false, "")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprint(stdout, usage)
-			return exitOK
-		}
-		fmt.Fprintf(stderr, "%v\n\n%s", err, usage)
-		return exitUsage
+	force := fs.Bool("force", false, "")
+	noInteractive := fs.Bool("no-interactive", false, "")
+	retryUnmatched := fs.Bool("retry-unmatched", false, "")
+	if code, ok := parseFlags(fs, args, d); !ok {
+		return code
 	}
 	if fs.NArg() != 1 {
 		fmt.Fprintf(stderr, "import takes exactly one export path\n\n%s", usage)
 		return exitUsage
 	}
+	if *asJSON && !*dryRun {
+		fmt.Fprintf(stderr, "--json requires --dry-run\n\n%s", usage)
+		return exitUsage
+	}
+	path := fs.Arg(0)
 	if !*dryRun {
-		fmt.Fprintln(stderr, "live import is not implemented yet (Phase C2)")
-		return exitError
+		return liveImport(path, *force, *retryUnmatched, !*noInteractive && d.isTerminal(), d)
 	}
 
-	path := fs.Arg(0)
 	ex, err := export.ParseFile(path)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
@@ -91,6 +130,52 @@ func runImport(args []string, stdout, stderr io.Writer) int {
 		return exitOK
 	}
 	printSummary(stdout, filepath.Base(path), ex)
+	return exitOK
+}
+
+// parseFlags parses args into fs. ok is false when the caller should return code.
+func parseFlags(fs *flag.FlagSet, args []string, d deps) (code int, ok bool) {
+	err := fs.Parse(args)
+	switch {
+	case err == nil:
+		return 0, true
+	case errors.Is(err, flag.ErrHelp):
+		fmt.Fprint(d.stdout, usage)
+		return exitOK, false
+	default:
+		fmt.Fprintf(d.stderr, "%v\n\n%s", err, usage)
+		return exitUsage, false
+	}
+}
+
+func liveImport(path string, force, retryUnmatched, interactive bool, d deps) int {
+	w, ok := newWorker(d)
+	if !ok {
+		return exitError
+	}
+	ex, err := export.ParseFile(path)
+	if err != nil {
+		fmt.Fprintf(d.stderr, "error: %v\n", err)
+		return exitError
+	}
+
+	opts := importer.Options{
+		SourceFilename: filepath.Base(path),
+		Force:          force,
+		RetryUnmatched: retryUnmatched,
+		Out:            d.stdout,
+	}
+	if interactive {
+		opts.Decider = prompt.New(d.stdin, d.stdout, w.MovieTMDB)
+	}
+	sum, err := importer.Run(context.Background(), w, ex, opts)
+	if sum != nil {
+		sum.Print(d.stdout)
+	}
+	if err != nil {
+		fmt.Fprintf(d.stderr, "error: %v\n", err)
+		return exitError
+	}
 	return exitOK
 }
 

@@ -135,8 +135,9 @@ func TestDryRunJSON(t *testing.T) {
 }
 
 func TestImportWithoutDryRun(t *testing.T) {
-	code, out, errOut := runCLI("import", writeZip(t, validFiles))
-	if code != exitError || out != "" || !strings.Contains(errOut, "live import is not implemented yet (Phase C2)") {
+	// C2: live import. With no API key it must stop before any network call.
+	code, out, errOut := runEnv(nil, "import", writeZip(t, validFiles))
+	if code != exitError || out != "" || errOut != "HARBINGER_API_KEY is not set\n" {
 		t.Errorf("exit %d, stdout %q, stderr %q", code, out, errOut)
 	}
 }
