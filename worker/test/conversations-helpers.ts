@@ -19,6 +19,8 @@ export interface CatalogFilm {
   runtime?: number;
   poster_path?: string;
   overview?: string;
+  /** Sections returned with append_to_response (credits, videos, "watch/providers"); replaces the empty defaults. */
+  appended?: Record<string, unknown>;
 }
 
 export interface ClaudeCall {
@@ -116,6 +118,9 @@ export function mockWorld(catalog: CatalogFilm[], replies: ClaudeReply[]): World
           poster_path: found.poster_path ?? null,
           budget: 1,
           tagline: "extra field",
+          ...(url.searchParams.has("append_to_response")
+            ? (found.appended ?? { credits: { cast: [], crew: [] }, videos: { results: [] }, "watch/providers": { results: {} } })
+            : {}),
         });
       }
       if (detail) return new Response("{}", { status: 404 });
@@ -181,6 +186,8 @@ export async function clearAll(): Promise<void> {
 interface SeedFilm {
   name: string;
   year: number;
+  /** Defaults to a unique id far from test catalogs; null = unmatched. */
+  tmdb_id?: number | null;
   horror?: boolean;
   half_stars?: number;
   watched?: boolean;
@@ -196,7 +203,13 @@ export async function seedLibrary(films: SeedFilm[]): Promise<void> {
     env.DB.prepare(
       `INSERT INTO films (letterboxd_uri, name, year, tmdb_id, match_status, is_horror, created_at)
        SELECT json_extract(value, '$.uri'), json_extract(value, '$.name'), json_extract(value, '$.year'),
-              key + 1, 'matched', json_extract(value, '$.horror'), ?
+              CASE json_type(value, '$.tmdb_id')
+                WHEN 'null' THEN NULL
+                WHEN 'integer' THEN json_extract(value, '$.tmdb_id')
+                ELSE key + 100001
+              END,
+              CASE json_type(value, '$.tmdb_id') WHEN 'null' THEN 'unmatched' ELSE 'matched' END,
+              json_extract(value, '$.horror'), ?
        FROM json_each(?)`,
     ).bind(now, payload),
     env.DB.prepare(

@@ -43,10 +43,16 @@ export interface FilmPick {
   why_full: string;
 }
 
+/** A pick that failed shape validation; title / year kept when usable, to name it back to Claude. */
+export interface InvalidPick {
+  title: string | null;
+  year: number | null;
+}
+
 export type Reply =
   | { kind: "question"; question: string; chips: string[] }
-  /** `invalid` counts picks dropped by validation (reported as dropped). */
-  | { kind: "recommendations"; picks: FilmPick[]; invalid: number };
+  /** `picks` may be empty; `invalid` are dropped by validation (reported as dropped). */
+  | { kind: "recommendations"; picks: FilmPick[]; invalid: InvalidPick[] };
 
 export const recommendationFailed = (message: string) =>
   new ClaudeError(502, "recommendation_failed", message);
@@ -61,8 +67,8 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 
 /**
  * Validates Claude's structured output. A reply that breaks the schema itself
- * → claude_error; one that fits the schema but is unusable (empty question, no
- * valid picks) → recommendation_failed.
+ * → claude_error; an empty question → recommendation_failed. Zero valid picks
+ * is returned as-is — the caller decides whether that fails the request.
  */
 export function parseReply(raw: unknown): Reply {
   if (!isObject(raw)) throw malformed("not an object");
@@ -88,13 +94,23 @@ export function parseReply(raw: unknown): Reply {
     if (raw.picks.length > MAX_PICKS) {
       console.log(`Claude returned ${raw.picks.length} picks; using the first ${MAX_PICKS}`);
     }
-    const considered = raw.picks.slice(0, MAX_PICKS);
-    const picks = considered.map(toPick).filter((p): p is FilmPick => p !== null);
-    if (picks.length === 0) throw recommendationFailed("Claude returned no valid picks");
-    return { kind: "recommendations", picks, invalid: considered.length - picks.length };
+    const picks: FilmPick[] = [];
+    const invalid: InvalidPick[] = [];
+    for (const item of raw.picks.slice(0, MAX_PICKS)) {
+      const pick = toPick(item);
+      if (pick) picks.push(pick);
+      else invalid.push(describeInvalid(item));
+    }
+    return { kind: "recommendations", picks, invalid };
   }
 
   throw malformed("kind");
+}
+
+function describeInvalid(raw: unknown): InvalidPick {
+  const title = isObject(raw) && typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : null;
+  const year = isObject(raw) && typeof raw.year === "number" && Number.isInteger(raw.year) ? raw.year : null;
+  return { title, year };
 }
 
 function toPick(raw: unknown): FilmPick | null {

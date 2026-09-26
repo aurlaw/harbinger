@@ -51,17 +51,23 @@ describe("parseReply", () => {
     expect(reply).toEqual({
       kind: "recommendations",
       picks: [pick("A"), pick("E")],
-      invalid: 3,
+      invalid: [
+        { title: null, year: 2015 },
+        { title: "C", year: 1869 },
+        { title: "D", year: null },
+      ],
     });
     expect(log).toHaveBeenCalled();
     log.mockRestore();
   });
 
-  it("fails recommendation_failed with no valid picks or an empty question", () => {
+  it("returns zero valid picks as-is; fails recommendation_failed on an empty question", () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(() => parseReply({ kind: "recommendations", question: "", chips: [], picks: [] })).toThrow(
-      expect.objectContaining({ code: "recommendation_failed" }),
-    );
+    expect(parseReply({ kind: "recommendations", question: "", chips: [], picks: [] })).toEqual({
+      kind: "recommendations",
+      picks: [],
+      invalid: [],
+    });
     expect(() => parseReply({ kind: "question", question: "  ", chips: [], picks: [] })).toThrow(
       expect.objectContaining({ code: "recommendation_failed" }),
     );

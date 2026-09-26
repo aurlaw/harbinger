@@ -1,9 +1,10 @@
 import { InvalidRequest, withJsonBody } from "../body";
-import { type ClaudeConfig, ClaudeError, callClaude, claudeConfig } from "../claude/client";
+import { type ClaudeConfig, type ClaudeMessage, ClaudeError, callClaude, claudeConfig } from "../claude/client";
 import { errorResponse, json } from "../http";
 import { buildSystemPrompt, loadLibraryPrompt, replayTurns, userTurnText } from "../recommend/prompt";
-import { resolvePicks } from "../recommend/resolve";
+import { pickFilms } from "../recommend/replace";
 import { OUTPUT_SCHEMA, type Reply, parseReply, recommendationFailed } from "../recommend/schema";
+import { loadExclusionSet } from "../recommend/validate";
 import { TmdbError } from "../tmdb/client";
 import { boolean, object } from "../validate";
 import {
@@ -135,8 +136,8 @@ export const getConversation = withClaudeConfig(async (_request, env, params) =>
 });
 
 /**
- * One exchange: prompt → Claude (question-cap retry) → validate → resolve →
- * one atomic write. Nothing is written if Claude or TMDB fails.
+ * One exchange: prompt → Claude (question-cap retry) → parse → resolve →
+ * validate → replace → one atomic write. Nothing is written if Claude or TMDB fails.
  */
 async function converse(
   env: Env,
@@ -153,23 +154,25 @@ async function converse(
     // Enforced on the user turn, never the system prompt, so the cache holds.
     const mustRecommend = input.just_pick || conversation.question_rounds >= 2;
 
-    const ask = async (firm: boolean): Promise<Reply> =>
-      parseReply(
-        await callClaude(config, {
-          model: conversation.model,
-          system,
-          messages: [
-            ...history,
-            { role: "user", content: userTurnText(input.text, input.just_pick, mustRecommend, firm) },
-          ],
-          schema: OUTPUT_SCHEMA,
-        }),
-      );
+    // Returns the parsed reply plus the exchange as sent / received, for replacement rounds.
+    const ask = async (firm: boolean): Promise<{ reply: Reply; exchange: ClaudeMessage[] }> => {
+      const turn: ClaudeMessage = {
+        role: "user",
+        content: userTurnText(input.text, input.just_pick, mustRecommend, firm),
+      };
+      const raw = await callClaude(config, {
+        model: conversation.model,
+        system,
+        messages: [...history, turn],
+        schema: OUTPUT_SCHEMA,
+      });
+      return { reply: parseReply(raw), exchange: [turn, { role: "assistant", content: JSON.stringify(raw) }] };
+    };
 
-    let reply = await ask(false);
+    let { reply, exchange } = await ask(false);
     if (reply.kind === "question" && mustRecommend) {
       console.log("Claude asked a question when it had to recommend; retrying once");
-      reply = await ask(true);
+      ({ reply, exchange } = await ask(true));
       if (reply.kind === "question") throw recommendationFailed("Claude would not recommend");
     }
 
@@ -198,10 +201,21 @@ async function converse(
     if (reply.kind === "question") {
       assistant.content_json = JSON.stringify({ text: reply.question, chips: reply.chips });
     } else {
-      const { resolved, unresolved } = await resolvePicks(env, reply.picks);
-      if (resolved.length === 0) throw recommendationFailed("No recommended film could be matched on TMDB");
-      assistant.content_json = JSON.stringify({ dropped: reply.invalid + unresolved });
-      recommendations = resolved.map((r, i) => ({
+      if (reply.picks.length === 0) throw recommendationFailed("Claude returned no valid picks");
+      const { accepted, rejected } = await pickFilms(
+        {
+          env,
+          config,
+          model: conversation.model,
+          system,
+          messages: [...history, ...exchange],
+          exclusions: await loadExclusionSet(env.DB, create ? null : conversation.id),
+        },
+        reply,
+      );
+      if (accepted.length === 0) throw recommendationFailed("No recommended film passed validation");
+      assistant.content_json = JSON.stringify({ dropped: rejected.length });
+      recommendations = accepted.map((r, i) => ({
         id: crypto.randomUUID(),
         conversation_id: conversation.id,
         message_id: assistant.id,

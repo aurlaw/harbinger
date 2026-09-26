@@ -32,9 +32,10 @@ interface ApiRecommendation {
   poster_path: string | null;
   runtime: number | null;
   overview: string;
-  director: null;
-  providers: unknown[];
-  trailer_key: null;
+  director: string | null;
+  providers: { name: string; type: string; logo_path: string | null }[];
+  providers_link: string | null;
+  trailer_key: string | null;
 }
 
 interface ApiMessage {
@@ -247,7 +248,7 @@ describe("Claude request", () => {
   it("replays prior turns in order, rebuilding recommendation turns from stored rows", async () => {
     const world = mockWorld(CATALOG, []);
     const first = await startWithQuestion(world);
-    world.replies.push(claudeReply(recs(pick("Mission: Impossible - Fallout", 2018), pick("Nope", 1999))));
+    world.replies.push(claudeReply(recs(pick("Mission: Impossible - Fallout", 2018))));
     await ok(await reply(first.conversation.id, { text: "Short" }));
     world.replies.push(claudeReply(question("More?", ["Yes"])));
     await ok(await reply(first.conversation.id, { text: "Another" }));
@@ -265,7 +266,7 @@ describe("Claude request", () => {
           kind: "recommendations",
           question: "",
           chips: [],
-          // TMDB's title, not Claude's; the dropped pick is absent.
+          // TMDB's title, not Claude's.
           picks: [
             {
               title: `Mission: Impossible ${EN_DASH} Fallout`,
@@ -291,7 +292,7 @@ describe("Claude request", () => {
     expect(body.system).not.toContain("Recommend now");
     expect(body.system).toBe(world.claudeCalls[0]!.body.system);
 
-    world.replies.push(claudeReply(recs(pick("Noroi", 2005))));
+    world.replies.push(claudeReply(recs(pick("Pulse", 2001))));
     await ok(await reply(first.conversation.id, { text: "Slower", just_pick: true }));
     expect(world.claudeCalls[2]!.body.messages.at(-1)!.content).toBe(`Slower\n\n${RECOMMEND_NOW}`);
   });
@@ -483,6 +484,9 @@ describe("pick resolution", () => {
           pick("Pulse", 2001),
         ),
       ),
+      // W4b: two replacement rounds that yield nothing.
+      claudeReply(question("?")),
+      claudeReply(question("?")),
     ]);
     const body = await ok<ConversationBody>(await start({ text: "hi" }));
     const message = body.messages[1]!;
@@ -494,13 +498,17 @@ describe("pick resolution", () => {
   });
 
   it("all picks unresolvable → 502 recommendation_failed, nothing stored", async () => {
-    mockWorld(CATALOG, [claudeReply(recs(pick("Nothing", 2000), pick("Nada", 2001)))]);
+    mockWorld(CATALOG, [
+      claudeReply(recs(pick("Nothing", 2000), pick("Nada", 2001))),
+      claudeReply(recs(pick("Zilch", 2002), pick("Nix", 2003))),
+      claudeReply(recs(pick("Zip", 2004))),
+    ]);
     await expectError(await start({ text: "hi" }), 502, "recommendation_failed");
     expect(await count("conversations")).toBe(0);
     expect(await count("messages")).toBe(0);
   });
 
-  it("stores TMDB's id / title / year and the W3 details shape as tmdb_json", async () => {
+  it("stores TMDB's id / title / year and the enriched W3 details shape as tmdb_json", async () => {
     mockWorld(CATALOG, [claudeReply(recs(pick("LAKE MUNGO", 2008)))]);
     const body = await ok<ConversationBody>(await start({ text: "hi" }));
     const row = await env.DB.prepare("SELECT tmdb_id, title, year, tmdb_json FROM recommendations").first<{
@@ -520,6 +528,10 @@ describe("pick resolution", () => {
       runtime: 102 % 30 + 90,
       overview: "Overview of Lake Mungo.",
       poster_path: "/p102.jpg",
+      director: null,
+      providers: [],
+      providers_link: null,
+      trailer_key: null,
     });
     expect(body.messages[1]!.recommendations![0]).toMatchObject({ runtime: 102, poster_path: "/p102.jpg" });
   });
@@ -600,6 +612,7 @@ describe("endpoints + persistence", () => {
       overview: "Overview of Pulse.",
       director: null,
       providers: [],
+      providers_link: null,
       trailer_key: null,
     });
   });

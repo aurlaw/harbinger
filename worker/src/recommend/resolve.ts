@@ -1,11 +1,11 @@
 import { TmdbError, tmdbGet } from "../tmdb/client";
-import { type MovieDetails, toMovieDetails } from "../tmdb/movie";
+import { type EnrichedDetails, fetchEnrichedDetails } from "../tmdb/enrich";
 import { type SearchResult, toSearchPage } from "../tmdb/search";
 import { normalizeTitle } from "./normalize";
 import type { FilmPick } from "./schema";
 
-// Pick → TMDB film, via the W3 client in-process. W4a drops unresolvable picks;
-// the horror check, exclusion set, and replacement loop arrive in W4b.
+// Pick → TMDB film, via the W3 client in-process. Validation and replacement
+// live in validate.ts / replace.ts.
 
 export interface ResolvedPick {
   tmdb_id: number;
@@ -14,7 +14,7 @@ export interface ResolvedPick {
   year: number | null;
   why_short: string;
   why_full: string;
-  details: MovieDetails;
+  details: EnrichedDetails;
 }
 
 const releaseYear = (date: string | null) => (date ? Number(date.slice(0, 4)) || null : null);
@@ -46,9 +46,10 @@ export async function resolvePick(env: Env, pick: FilmPick): Promise<ResolvedPic
   const hit = await search(env, pick);
   if (!hit) return null;
 
-  let details: MovieDetails;
+  let details: EnrichedDetails;
   try {
-    details = toMovieDetails(await tmdbGet(env, `/movie/${hit.tmdb_id}`));
+    // One request: details + credits + videos + watch providers.
+    details = await fetchEnrichedDetails(env, hit.tmdb_id);
   } catch (err) {
     // Listed in search but gone from details: treat as unresolvable.
     if (err instanceof TmdbError && err.code === "not_found") return null;
@@ -62,11 +63,4 @@ export async function resolvePick(env: Env, pick: FilmPick): Promise<ResolvedPic
     why_full: pick.why_full,
     details,
   };
-}
-
-/** Resolves picks concurrently, keeping Claude's order; unresolved picks are dropped. */
-export async function resolvePicks(env: Env, picks: FilmPick[]): Promise<{ resolved: ResolvedPick[]; unresolved: number }> {
-  const results = await Promise.all(picks.map((pick) => resolvePick(env, pick)));
-  const resolved = results.filter((r): r is ResolvedPick => r !== null);
-  return { resolved, unresolved: picks.length - resolved.length };
 }

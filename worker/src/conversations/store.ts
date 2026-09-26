@@ -1,5 +1,5 @@
 import type { Turn } from "../recommend/prompt";
-import type { MovieDetails } from "../tmdb/movie";
+import type { EnrichedDetails } from "../tmdb/enrich";
 
 // D1 access for conversations, messages, and recommendations, plus the
 // row → API mappings shared by every conversation endpoint.
@@ -189,9 +189,12 @@ export function toApiMessage(m: MessageRow, recommendations: RecommendationRow[]
   return { ...message, recommendations: picksFor(recommendations, m.id).map(toApiRecommendation) };
 }
 
-/** Stable app contract; director / providers / trailer_key are filled by W4b. */
+/**
+ * Stable app contract. Enrichment fields come from tmdb_json; W4a-era rows
+ * (no enrichment stored) render as null / [] / null — no backfill.
+ */
 export function toApiRecommendation(r: RecommendationRow) {
-  const details = JSON.parse(r.tmdb_json) as MovieDetails;
+  const details = JSON.parse(r.tmdb_json) as Partial<EnrichedDetails>;
   return {
     id: r.id,
     position: r.position,
@@ -200,11 +203,12 @@ export function toApiRecommendation(r: RecommendationRow) {
     year: r.year,
     why_short: r.why_short,
     why_full: r.why_full,
-    poster_path: details.poster_path,
-    runtime: details.runtime,
-    overview: details.overview,
-    director: null,
-    providers: [],
-    trailer_key: null,
+    poster_path: details.poster_path ?? null,
+    runtime: details.runtime ?? null,
+    overview: details.overview ?? "",
+    director: details.director ?? null,
+    providers: details.providers ?? [],
+    providers_link: details.providers_link ?? null,
+    trailer_key: details.trailer_key ?? null,
   };
 }
