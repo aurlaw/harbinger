@@ -6,7 +6,7 @@ Personal horror movie recommendation app for one user. LLM-driven picks from Let
 
 - `worker/` — TypeScript Cloudflare Worker + D1 (`harbinger-api.aurlaw.dev`)
 - `cli/` — Go Letterboxd import CLI
-- `ios/` — Swift/SwiftUI app
+- `ios/` — Swift/SwiftUI app (see `ios/CLAUDE.md`: `make build` / `make test` / `make lint`, never edit the Xcode project)
 
 Each component has (or will have, once scaffolded) its own `CLAUDE.md`. Read it before working in that directory.
 
