@@ -4,8 +4,8 @@ Native Swift/SwiftUI iOS app (iPhone only, iOS 26, Swift 6). Talks only to the W
 
 ## Layout
 
-- `Harbinger/HarbingerApp.swift`: app entry; builds the live `AppConfiguration`
-- `Harbinger/RootView.swift`: shows the first-launch sheet until an endpoint + key are saved. The connected screen is a placeholder until I3
+- `Harbinger/HarbingerApp.swift`: app entry; creates the one `ModelContainer` (skipped when hosting unit tests) and the live `AppConfiguration`
+- `Harbinger/RootView.swift`: shows the first-launch sheet until an endpoint + key are saved; owns the `SyncController`, builds the `SyncService` once a connection exists, and syncs on launch / foreground
 - `Harbinger/Config/Endpoint.swift`: `normalizeEndpoint` (https only; http for `localhost` / `127.0.0.1`), `defaultEndpoint`
 - `Harbinger/Config/CredentialStore.swift`: `CredentialStore` protocol + `KeychainCredentialStore` (service `com.aurlaw.harbinger`, account `api-key`, `AfterFirstUnlockThisDeviceOnly`)
 - `Harbinger/Config/AppConfiguration.swift`: `EndpointStore` (UserDefaults `endpointURL`), `Connection`, `AppConfiguration` (stores + client factory)
@@ -14,7 +14,14 @@ Native Swift/SwiftUI iOS app (iPhone only, iOS 26, Swift 6). Talks only to the W
 - `Harbinger/API/APIError.swift`: `APIError` + the Worker's error envelope
 - `Harbinger/API/JSONCoding.swift`: snake_case coders; fractional-second timestamp parsing/formatting
 - `Harbinger/Setup/`: first-launch sheet (`SetupView`) + `SetupViewModel`
-- `HarbingerTests/`: Swift Testing. `TestSupport.swift` has `StubURLProtocol`, `InMemoryCredentialStore`, `FakeAPIClient`; `Fixtures.swift` has real-shaped response bodies
+- `Harbinger/Store/CachedModels.swift`: the six SwiftData models (`CachedConversation`, `CachedMessage`, `CachedRecommendation`, `CachedDecision`, `CachedTasteProfile`, `SyncState`) + `CachedProvider`
+- `Harbinger/Store/CacheMapping.swift`: DTO → cache mapping (`apply`) and typed accessors (`content`, `messageRole`, `choice`). The only place DTO names (`tmdbId`) become cache names (`tmdbID`)
+- `Harbinger/Store/CacheStore.swift`: schema, store URL, `openOrRebuild`, `inMemory()` for tests
+- `Harbinger/Sync/SyncService.swift`: the model actor: `sync()`, `resetAndSync()`, `ingest(_:)`; `SyncError`, `SyncResult`, `SyncServicing`
+- `Harbinger/Sync/SyncService+Apply.swift`: `CacheBatch` + the shared upsert logic
+- `Harbinger/Sync/SyncController.swift`: main-actor `@Observable`; decides when to sync, exposes `isSyncing` / `lastError`
+- `Harbinger/Sync/SyncStatusView.swift`: placeholder root (cache counts, pull-to-refresh) until I3
+- `HarbingerTests/`: Swift Testing. `TestSupport.swift` has `StubURLProtocol`, `InMemoryCredentialStore`, `FakeAPIClient` (scripted `health()` and `sync(since:)` via `SyncRecorder`); `SyncTestSupport.swift` has DTO builders, `CacheReader`, `FakeSyncService`; `RootViewTests.swift` hosts the real root view in the test host's window; `Fixtures.swift` has real-shaped response bodies
 
 ## Commands
 
@@ -34,6 +41,7 @@ The app target defaults every unannotated declaration to `@MainActor`. That's ri
 - `APIClient` is `Sendable`; `URLSessionAPIClient` is a `nonisolated final class` with only immutable stored properties
 - Keychain, endpoint store, and pure helpers (`normalizeEndpoint`, timestamp parsing, coders) are `nonisolated`
 - Views and view models stay main-actor (the default)
+- SwiftData models are `@Model nonisolated final class`. A model actor can't create or mutate main-actor-isolated models, so this is required. Their extensions are `nonisolated extension`
 - No `@unchecked Sendable`. `nonisolated(unsafe)` is allowed only in test stubs (`StubURLProtocol`'s shared handler), and suites using the stub must be `@Suite(.serialized)`
 
 ## API client rules
@@ -44,6 +52,27 @@ The app target defaults every unannotated declaration to `@MainActor`. That's ri
 - No retries in the client
 - The sync cursor (`next_since` / `server_time`) stays the exact server `String`. Never round-trip it through `Date`
 - Server timestamps have fractional seconds, which `.iso8601` rejects. Use `makeDecoder()` / `makeEncoder()`, never a bare `JSONDecoder`
+
+## Cache and sync
+
+The SwiftData store is a **disposable read cache**. The Worker is the source of truth and everything is rebuilt from `/sync`.
+
+- **Naming:** DTOs own the plain names (`Conversation`, `Message`, …). SwiftData models take a `Cached` prefix. Don't rename the DTOs
+- **Models:** enum-like fields (`role`, `kind`, `decision`) are stored as raw `String`s for simple `#Predicate`s, with typed accessors. Message content is flattened into `text` / `justPick` / `chips` / `dropped`; `CachedMessage.content` rebuilds the `MessageContent` enum. Every property except the unique key has a default value, so additive changes migrate
+- **Decisions** are one row per `tmdbID`, separate from recommendations (a film can appear in several conversations)
+- **Container:** one `ModelContainer`, created once in `HarbingerApp` and shared by `.modelContainer(_:)` and `SyncService`. Store at `Application Support/Harbinger.store`. If it can't be opened, `CacheStore.openOrRebuild` deletes the store files and retries once; a second failure is a `fatalError`. No `VersionedSchema` or migration plan. Tests use `CacheStore.inMemory()`
+- **One writer:** `SyncService` is the only code that writes to the cache. Views read with `@Query`. It conforms to `ModelActor` by hand because the `@ModelActor` macro's initializer can't take the API client; create it with `SyncService.make` so it's built off the main actor
+- **Upsert by id:** one fetch per model for the incoming ids, then update in place or insert. Never rely on `@Attribute(.unique)` insert collisions. Order: conversations → messages → recommendations → decisions → profile. A child whose parent is neither in the batch nor cached is skipped and logged
+- **Delta semantics:** empty arrays mean no changes. **`taste_profile: null` means unchanged. Never delete the cached profile because of it.** Sync never deletes anything; rows are only deleted by `resetAndSync()` and the container-rebuild path
+- **Idempotent:** the Worker's 120 s overlap re-sends rows, so applying a response twice must leave identical state
+- **The cursor advances only with the data it covers:** the apply and the `SyncState` update are one `modelContext.save()`. An API error applies nothing; an apply or save error calls `rollback()`. Either way `nextSince` is unchanged
+- **No overlapping syncs:** a `sync()` call made while one is running awaits the same in-flight task. The task clears itself when it finishes
+- **Model-actor executor gotchas** (verified on iOS 26.5): a `Task { }` created inside the actor starts running immediately, before the creating code continues, so never assume "the line after `Task { }` runs first". And a service built on the main actor does its work on the main thread, which is why `SyncService.make` is `@concurrent`
+- **Logging:** each sync logs its cursor, row counts, and failures to `Logger` category `sync` (subsystem `com.aurlaw.harbinger`). Never log the API key
+- **Ingest helpers** (`ingest(ConversationResponse)`, `ingest(Decision)`, `ingest(TasteProfile)`) put write responses straight into the cache through the same upsert path. One save each, and they never move the cursor; the next `/sync` re-delivers those rows harmlessly
+- **One long-lived `SyncController`:** `RootView` creates it up front and attaches the service with `connect(_:)` once a connection exists. Give views the controller non-optionally from their first render. A `List` keeps the `.refreshable` action it was first given, so a controller that starts as `nil` leaves pull-to-refresh doing nothing (`RootViewTests` covers this)
+- **Triggers:** `SyncController.syncIfStale()` on launch and when the scene becomes active, skipped if a sync succeeded in the last 30 s. `syncNow()` (pull-to-refresh) always runs. Sync errors are non-fatal and never block the UI
+- **Test host:** `make test` launches the app as the test host. `isHostingTests` makes it skip the live store and sync, so a simulator with a saved key never calls the real Worker. Keep that guard
 
 ## Dependencies and secrets
 

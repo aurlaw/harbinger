@@ -123,14 +123,57 @@ final class HealthRecorder: Sendable {
   }
 }
 
-/// Only `health()` is scripted; everything else fails — the setup flow uses nothing else.
+/// Scripts `/sync`: answers each request with the next queued result and records its `since`.
+final class SyncRecorder: Sendable {
+  private struct State {
+    var results: [Result<SyncResponse, APIError>]
+    var sinces: [String?] = []
+  }
+
+  private let state: Mutex<State>
+  /// Holds each request open, so concurrent callers overlap.
+  private let delay: Duration?
+
+  init(_ results: [Result<SyncResponse, APIError>] = [], delay: Duration? = nil) {
+    self.state = Mutex(State(results: results))
+    self.delay = delay
+  }
+
+  /// One entry per request; `nil` is a full pull.
+  var sinces: [String?] { state.withLock { $0.sinces } }
+
+  func enqueue(_ result: Result<SyncResponse, APIError>) {
+    state.withLock { $0.results.append(result) }
+  }
+
+  fileprivate func next(since: String?) async -> Result<SyncResponse, APIError> {
+    let result = state.withLock { state -> Result<SyncResponse, APIError> in
+      state.sinces.append(since)
+      return state.results.isEmpty ? .failure(.invalidResponse) : state.results.removeFirst()
+    }
+    if let delay {
+      try? await Task.sleep(for: delay)
+    }
+    return result
+  }
+}
+
+/// `health()` and `sync(since:)` are scripted; everything else fails.
 final class FakeAPIClient: APIClient {
   let connection: Connection
   let recorder: HealthRecorder
+  let syncs: SyncRecorder?
 
-  init(connection: Connection, recorder: HealthRecorder) {
+  init(connection: Connection, recorder: HealthRecorder, syncs: SyncRecorder? = nil) {
     self.connection = connection
     self.recorder = recorder
+    self.syncs = syncs
+  }
+
+  convenience init(syncs: SyncRecorder) {
+    self.init(
+      connection: Connection(baseURL: testBaseURL, apiKey: testAPIKey),
+      recorder: HealthRecorder(result: .success(HealthResponse(status: "ok"))), syncs: syncs)
   }
 
   func health() async throws(APIError) -> HealthResponse {
@@ -156,5 +199,8 @@ final class FakeAPIClient: APIClient {
   func draftTasteProfile(model: String?) async throws(APIError) -> TasteProfileDraft {
     throw .invalidResponse
   }
-  func sync(since: String?) async throws(APIError) -> SyncResponse { throw .invalidResponse }
+  func sync(since: String?) async throws(APIError) -> SyncResponse {
+    guard let syncs else { throw .invalidResponse }
+    return try await syncs.next(since: since).get()
+  }
 }
