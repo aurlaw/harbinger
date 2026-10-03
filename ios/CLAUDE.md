@@ -4,8 +4,12 @@ Native Swift/SwiftUI iOS app (iPhone only, iOS 26, Swift 6). Talks only to the W
 
 ## Layout
 
-- `Harbinger/HarbingerApp.swift`: app entry; creates the one `ModelContainer` (skipped when hosting unit tests) and the live `AppConfiguration`
-- `Harbinger/RootView.swift`: shows the first-launch sheet until an endpoint + key are saved; owns the `SyncController`, builds the `SyncService` once a connection exists, and syncs on launch / foreground
+- `Harbinger/HarbingerApp.swift`: app entry; creates the one `ModelContainer` (skipped when hosting unit tests), the live `AppConfiguration`, and the enlarged `URLCache.shared`
+- `Harbinger/RootView.swift`: shows the first-launch sheet until an endpoint + key are saved; owns the `SyncController`; once a connection exists builds the `SyncService` and `AppSession`, injects the session, and syncs on launch / foreground
+- `Harbinger/Session/AppSession.swift`: the connected session (client, `SyncService`, `SyncController`, models, turns in flight); `TurnTarget`, `TurnRequest`, `PendingTurn`, `TurnFailure`, `TurnOutcome`
+- `Harbinger/Conversations/ConversationListView.swift`: the root screen; `Route` and the stack's `navigationDestination`
+- `Harbinger/Chat/`: `ChatView` (transcript, bubbles, chips, typing indicator, error row), `ChatModel` (draft, model choice, send / just pick / chip / retry), `Composer`, `PickCard` + `Poster` + `RecommendationPlaceholderView` (I4 replaces the placeholder)
+- `Harbinger/Shared/`: `tmdbImageURL` + `TMDBImageSize`; `DisplayText.swift` (turn error text, bubble text, list dates, `DecisionBadge`, `MessageLimit`); `FlowLayout` (wrapping chips)
 - `Harbinger/Config/Endpoint.swift`: `normalizeEndpoint` (https only; http for `localhost` / `127.0.0.1`), `defaultEndpoint`
 - `Harbinger/Config/CredentialStore.swift`: `CredentialStore` protocol + `KeychainCredentialStore` (service `com.aurlaw.harbinger`, account `api-key`, `AfterFirstUnlockThisDeviceOnly`)
 - `Harbinger/Config/AppConfiguration.swift`: `EndpointStore` (UserDefaults `endpointURL`), `Connection`, `AppConfiguration` (stores + client factory)
@@ -20,8 +24,8 @@ Native Swift/SwiftUI iOS app (iPhone only, iOS 26, Swift 6). Talks only to the W
 - `Harbinger/Sync/SyncService.swift`: the model actor: `sync()`, `resetAndSync()`, `ingest(_:)`; `SyncError`, `SyncResult`, `SyncServicing`
 - `Harbinger/Sync/SyncService+Apply.swift`: `CacheBatch` + the shared upsert logic
 - `Harbinger/Sync/SyncController.swift`: main-actor `@Observable`; decides when to sync, exposes `isSyncing` / `lastError`
-- `Harbinger/Sync/SyncStatusView.swift`: placeholder root (cache counts, pull-to-refresh) until I3
-- `HarbingerTests/`: Swift Testing. `TestSupport.swift` has `StubURLProtocol`, `InMemoryCredentialStore`, `FakeAPIClient` (scripted `health()` and `sync(since:)` via `SyncRecorder`); `SyncTestSupport.swift` has DTO builders, `CacheReader`, `FakeSyncService`; `RootViewTests.swift` hosts the real root view in the test host's window; `Fixtures.swift` has real-shaped response bodies
+- `Harbinger/Sync/SyncStatusView.swift`: cache counts + sync status; the interim Settings screen (gear) until I5
+- `HarbingerTests/`: Swift Testing. `TestSupport.swift` has `StubURLProtocol`, `InMemoryCredentialStore`, `FakeAPIClient` (scripted `health()` and `sync(since:)` via `SyncRecorder`); `SyncTestSupport.swift` has DTO builders, `CacheReader`, `FakeSyncService`; `RootViewTests.swift` hosts the real root view in the test host's window; `AppSessionTests.swift` has `SessionHarness` (fake Worker + in-memory cache + real `SyncService`) and `eventually`; `ScreenSmokeTests.swift` renders each screen so its `@Query` predicates run; `Fixtures.swift` has real-shaped response bodies
 
 ## Commands
 
@@ -73,6 +77,27 @@ The SwiftData store is a **disposable read cache**. The Worker is the source of 
 - **One long-lived `SyncController`:** `RootView` creates it up front and attaches the service with `connect(_:)` once a connection exists. Give views the controller non-optionally from their first render. A `List` keeps the `.refreshable` action it was first given, so a controller that starts as `nil` leaves pull-to-refresh doing nothing (`RootViewTests` covers this)
 - **Triggers:** `SyncController.syncIfStale()` on launch and when the scene becomes active, skipped if a sync succeeded in the last 30 s. `syncNow()` (pull-to-refresh) always runs. Sync errors are non-fatal and never block the UI
 - **Test host:** `make test` launches the app as the test host. `isHostingTests` makes it skip the live store and sync, so a simulator with a saved key never calls the real Worker. Keep that guard
+
+## Session, navigation, and chat
+
+- **`AppSession`** is created by `RootView` once a connection exists and injected with `.environment(_:)`. Views get the client, sync, and models from it, with no singletons. A new session (new connection) re-creates the screens (`.id(ObjectIdentifier(session))`), because lists keep their first refresh action
+- **Sending lives on the session, not in views.** `send(_:)` runs the request and `ingest` in a task the session owns, so a turn survives leaving (and releasing) the chat screen. One turn in flight per `TurnTarget` (each conversation, plus one `.new` slot); a second send is `.rejected` with no request. `pending` and `failures` are keyed by target, so returning to a chat shows its typing indicator or error row. `retry(_:)` resends the identical `TurnRequest`. No client-side reconciliation: if a request is cut off, the next sync delivers whatever the Worker committed. If ingest fails after a successful response, the session runs a sync instead
+- **Models:** `loadModels()` runs once per session. On failure `defaultModel` / `allowedModels` stay `nil`: the picker is hidden and new conversations omit `model`. The model is sent only when creating a conversation
+- **The cache only holds server data.** The pending bubble is session state, never a cached row; the transcript renders from `@Query`, and the pending entry is cleared only after ingest
+- **Routes** (`Route`, value-based `NavigationLink` + one `navigationDestination` on the list): `.conversation(id)`, `.newConversation`, `.recommendation(id)` (placeholder until I4), `.settings` (`SyncStatusView` until I5)
+- **New conversations** switch to the returned id in place (`ChatModel.conversationID`; the transcript is re-created with `.id`), with no extra push
+- **Composer rules:** text is trimmed; 1–2,000 characters counted as UTF-16 (`MessageLimit`, matching the Worker's JS `length`); over the limit disables Send and Just pick and shows a count. Just pick works with or without text on an existing conversation, but **a new conversation needs text**: `POST /conversations` requires it even with `just_pick`. Chips are live only on the latest message while nothing is sending. A failed send restores its text to the composer
+- **Posters:** TMDB returns only a path; build URLs with `tmdbImageURL(path:size:)` (single slash, `nil` for a missing path). Sizes: `w185` cards, `w500` detail (I4), `w92` provider logos (I4). `HarbingerApp` sets `URLCache.shared` to 50 MB memory / 300 MB disk so seen posters load offline; `AsyncImage` uses it. No custom image loader
+- **Turn error text** (`turnErrorMessage`; I6 refines):
+
+| Error | Text |
+|---|---|
+| `409 conversation_busy` | "Still working on the last message." |
+| `503 claude_unavailable` / `tmdb_rate_limited` | "The service is busy — try again in a moment." |
+| any `502` (`claude_error`, `tmdb_unavailable`, `recommendation_failed`) | "Couldn't get recommendations — try again." |
+| `.network` | "Can't reach the server." |
+| `.unauthorized` | "API key rejected." |
+| anything else | "Something went wrong." |
 
 ## Dependencies and secrets
 

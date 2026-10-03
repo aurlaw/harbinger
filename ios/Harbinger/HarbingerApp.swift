@@ -8,6 +8,12 @@ struct HarbingerApp: App {
   /// a simulator with a saved key must never call the real Worker from `make test`.
   private let container: ModelContainer? = isHostingTests ? nil : CacheStore.live()
 
+  init() {
+    // Bigger shared cache, so posters already seen load offline. `AsyncImage` uses it.
+    URLCache.shared = URLCache(
+      memoryCapacity: 50 * 1024 * 1024, diskCapacity: 300 * 1024 * 1024)
+  }
+
   var body: some Scene {
     WindowGroup {
       if let container {

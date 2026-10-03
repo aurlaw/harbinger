@@ -158,34 +158,104 @@ final class SyncRecorder: Sendable {
   }
 }
 
-/// `health()` and `sync(since:)` are scripted; everything else fails.
+/// Scripts `/models` and chat turns (`createConversation` / `sendMessage`): records each call
+/// and answers turns with the next queued result.
+final class TurnScript: Sendable {
+  enum Call: Equatable, Sendable {
+    case models
+    case create(model: String?, text: String, justPick: Bool)
+    case send(conversationID: String, text: String?, justPick: Bool)
+  }
+
+  private struct State {
+    var calls: [Call] = []
+    var turns: [Result<ConversationResponse, APIError>]
+    var models: Result<ModelsResponse, APIError>
+  }
+
+  private let state: Mutex<State>
+  /// Holds each turn open, so tests can act while it is in flight.
+  private let delay: Duration?
+
+  init(
+    _ turns: [Result<ConversationResponse, APIError>] = [],
+    models: Result<ModelsResponse, APIError> = .failure(.invalidResponse),
+    delay: Duration? = nil
+  ) {
+    self.state = Mutex(State(turns: turns, models: models))
+    self.delay = delay
+  }
+
+  var calls: [Call] { state.withLock { $0.calls } }
+
+  func enqueue(_ result: Result<ConversationResponse, APIError>) {
+    state.withLock { $0.turns.append(result) }
+  }
+
+  fileprivate func models() -> Result<ModelsResponse, APIError> {
+    state.withLock { state in
+      state.calls.append(.models)
+      return state.models
+    }
+  }
+
+  fileprivate func turn(_ call: Call) async -> Result<ConversationResponse, APIError> {
+    let result = state.withLock { state -> Result<ConversationResponse, APIError> in
+      state.calls.append(call)
+      return state.turns.isEmpty ? .failure(.invalidResponse) : state.turns.removeFirst()
+    }
+    if let delay {
+      try? await Task.sleep(for: delay)
+    }
+    return result
+  }
+}
+
+/// `health()`, `sync(since:)`, `models()`, and chat turns are scripted; everything else fails.
 final class FakeAPIClient: APIClient {
   let connection: Connection
   let recorder: HealthRecorder
   let syncs: SyncRecorder?
+  let turns: TurnScript?
 
-  init(connection: Connection, recorder: HealthRecorder, syncs: SyncRecorder? = nil) {
+  init(
+    connection: Connection, recorder: HealthRecorder, syncs: SyncRecorder? = nil,
+    turns: TurnScript? = nil
+  ) {
     self.connection = connection
     self.recorder = recorder
     self.syncs = syncs
+    self.turns = turns
   }
 
-  convenience init(syncs: SyncRecorder) {
+  convenience init(syncs: SyncRecorder = SyncRecorder(), turns: TurnScript? = nil) {
     self.init(
       connection: Connection(baseURL: testBaseURL, apiKey: testAPIKey),
-      recorder: HealthRecorder(result: .success(HealthResponse(status: "ok"))), syncs: syncs)
+      recorder: HealthRecorder(result: .success(HealthResponse(status: "ok"))), syncs: syncs,
+      turns: turns)
   }
 
   func health() async throws(APIError) -> HealthResponse {
     try recorder.record(connection).get()
   }
-  func models() async throws(APIError) -> ModelsResponse { throw .invalidResponse }
+  func models() async throws(APIError) -> ModelsResponse {
+    guard let turns else { throw .invalidResponse }
+    return try turns.models().get()
+  }
   func createConversation(model: String?, text: String, justPick: Bool) async throws(APIError)
     -> ConversationResponse
-  { throw .invalidResponse }
+  {
+    guard let turns else { throw .invalidResponse }
+    return try await turns.turn(.create(model: model, text: text, justPick: justPick)).get()
+  }
   func sendMessage(conversationID: String, text: String?, justPick: Bool) async throws(APIError)
     -> ConversationResponse
-  { throw .invalidResponse }
+  {
+    guard let turns else { throw .invalidResponse }
+    return try await turns.turn(
+      .send(conversationID: conversationID, text: text, justPick: justPick)
+    ).get()
+  }
   func conversation(id: String) async throws(APIError) -> ConversationResponse {
     throw .invalidResponse
   }

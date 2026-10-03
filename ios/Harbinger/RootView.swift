@@ -1,8 +1,8 @@
 import SwiftData
 import SwiftUI
 
-/// Presents the first-launch sheet until an endpoint + key are saved, then keeps the
-/// cache synced. The connected screen is a placeholder until I3.
+/// Presents the first-launch sheet until an endpoint + key are saved, then shows the
+/// conversation list and keeps the cache synced.
 struct RootView: View {
   let configuration: AppConfiguration
   let container: ModelContainer
@@ -10,6 +10,7 @@ struct RootView: View {
   @Environment(\.scenePhase) private var scenePhase
   @State private var connection: Connection?
   @State private var sync = SyncController()
+  @State private var session: AppSession?
 
   init(configuration: AppConfiguration, container: ModelContainer) {
     self.configuration = configuration
@@ -18,9 +19,18 @@ struct RootView: View {
   }
 
   var body: some View {
-    NavigationStack {
-      SyncStatusView(host: connection?.baseURL.host(), sync: sync)
-        .navigationTitle("Harbinger")
+    Group {
+      if let session {
+        NavigationStack {
+          ConversationListView()
+        }
+        .environment(session)
+        // A new session (new connection) gets fresh screens: lists keep the refresh action
+        // they were first given.
+        .id(ObjectIdentifier(session))
+      } else {
+        Color(.systemBackground)
+      }
     }
     .sheet(isPresented: .constant(connection == nil)) {
       SetupView(model: SetupViewModel(configuration: configuration)) { connection = $0 }
@@ -32,7 +42,13 @@ struct RootView: View {
       let service = await SyncService.make(
         modelContainer: container, client: configuration.makeClient(connection))
       sync.connect(service)
-      await sync.syncIfStale()
+      let session = AppSession(
+        connection: connection, client: configuration.makeClient(connection),
+        syncService: service, sync: sync)
+      self.session = session
+      async let synced: Void = sync.syncIfStale()
+      async let models: Void = session.loadModels()
+      _ = await (synced, models)
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
