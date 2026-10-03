@@ -211,28 +211,70 @@ final class TurnScript: Sendable {
   }
 }
 
-/// `health()`, `sync(since:)`, `models()`, and chat turns are scripted; everything else fails.
+/// Scripts `setDecision`: records each call and answers with the next queued result.
+final class DecisionScript: Sendable {
+  struct Call: Equatable, Sendable {
+    let tmdbID: Int
+    let decision: Decision.Choice
+    let conversationID: String
+  }
+
+  private struct State {
+    var calls: [Call] = []
+    var results: [Result<Decision, APIError>]
+  }
+
+  private let state: Mutex<State>
+  /// Holds each request open, so tests can act while it is in flight.
+  private let delay: Duration?
+
+  init(_ results: [Result<Decision, APIError>] = [], delay: Duration? = nil) {
+    self.state = Mutex(State(results: results))
+    self.delay = delay
+  }
+
+  var calls: [Call] { state.withLock { $0.calls } }
+
+  fileprivate func next(_ call: Call) async -> Result<Decision, APIError> {
+    let result = state.withLock { state -> Result<Decision, APIError> in
+      state.calls.append(call)
+      return state.results.isEmpty ? .failure(.invalidResponse) : state.results.removeFirst()
+    }
+    if let delay {
+      try? await Task.sleep(for: delay)
+    }
+    return result
+  }
+}
+
+/// `health()`, `sync(since:)`, `models()`, chat turns, and decisions are scripted; everything
+/// else fails.
 final class FakeAPIClient: APIClient {
   let connection: Connection
   let recorder: HealthRecorder
   let syncs: SyncRecorder?
   let turns: TurnScript?
+  let decisions: DecisionScript?
 
   init(
     connection: Connection, recorder: HealthRecorder, syncs: SyncRecorder? = nil,
-    turns: TurnScript? = nil
+    turns: TurnScript? = nil, decisions: DecisionScript? = nil
   ) {
     self.connection = connection
     self.recorder = recorder
     self.syncs = syncs
     self.turns = turns
+    self.decisions = decisions
   }
 
-  convenience init(syncs: SyncRecorder = SyncRecorder(), turns: TurnScript? = nil) {
+  convenience init(
+    syncs: SyncRecorder = SyncRecorder(), turns: TurnScript? = nil,
+    decisions: DecisionScript? = nil
+  ) {
     self.init(
       connection: Connection(baseURL: testBaseURL, apiKey: testAPIKey),
       recorder: HealthRecorder(result: .success(HealthResponse(status: "ok"))), syncs: syncs,
-      turns: turns)
+      turns: turns, decisions: decisions)
   }
 
   func health() async throws(APIError) -> HealthResponse {
@@ -261,7 +303,12 @@ final class FakeAPIClient: APIClient {
   }
   func setDecision(tmdbID: Int, decision: Decision.Choice, conversationID: String)
     async throws(APIError) -> Decision
-  { throw .invalidResponse }
+  {
+    guard let decisions else { throw .invalidResponse }
+    let call = DecisionScript.Call(
+      tmdbID: tmdbID, decision: decision, conversationID: conversationID)
+    return try await decisions.next(call).get()
+  }
   func tasteProfile() async throws(APIError) -> TasteProfile? { throw .invalidResponse }
   func saveTasteProfile(content: String) async throws(APIError) -> TasteProfile {
     throw .invalidResponse
@@ -272,5 +319,16 @@ final class FakeAPIClient: APIClient {
   func sync(since: String?) async throws(APIError) -> SyncResponse {
     guard let syncs else { throw .invalidResponse }
     return try await syncs.next(since: since).get()
+  }
+}
+
+/// Records URLs the app asked to open (instead of opening them).
+final class OpenRecorder: Sendable {
+  private let urls = Mutex<[URL]>([])
+
+  var opened: [URL] { urls.withLock { $0 } }
+
+  func open(_ url: URL) {
+    urls.withLock { $0.append(url) }
   }
 }

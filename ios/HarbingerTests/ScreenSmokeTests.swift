@@ -66,10 +66,28 @@ struct ScreenSmokeTests {
     #expect(harness.session.failures[.new] != nil)
   }
 
-  @Test func recommendationPlaceholderRenders() async throws {
+  @Test func pickDetailRenders() async throws {
     let harness = try await cachedHarness()
     try await render(
-      NavigationStack { RecommendationPlaceholderView(recommendationID: "rec-1") }
+      NavigationStack { PickDetailView(recommendationID: "rec-1") }
+        .environment(harness.session)
+        .modelContainer(harness.container))
+  }
+
+  /// A W4a-era row: no director, providers, providers link, or trailer.
+  @Test func bareRecommendationDetailRenders() async throws {
+    let harness = try await cachedHarness()
+    try await render(
+      NavigationStack { PickDetailView(recommendationID: "rec-2") }
+        .environment(harness.session)
+        .modelContainer(harness.container))
+  }
+
+  @Test func missingPickRenders() async throws {
+    let harness = try await cachedHarness()
+    try await render(
+      NavigationStack { PickDetailView(recommendationID: "missing") }
+        .environment(harness.session)
         .modelContainer(harness.container))
   }
 }

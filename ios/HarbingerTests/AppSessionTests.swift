@@ -8,18 +8,21 @@ import Testing
 @MainActor
 struct SessionHarness {
   let turns: TurnScript
+  let decisions: DecisionScript
+  let opener = OpenRecorder()
   let container: ModelContainer
   let session: AppSession
 
-  init(turns: TurnScript = TurnScript()) throws {
+  init(turns: TurnScript = TurnScript(), decisions: DecisionScript = DecisionScript()) throws {
     self.turns = turns
+    self.decisions = decisions
     container = try CacheStore.inMemory()
-    let client = FakeAPIClient(turns: turns)
+    let client = FakeAPIClient(turns: turns, decisions: decisions)
     let service = SyncService(modelContainer: container, client: client)
     let sync = SyncController(service: service)
     session = AppSession(
       connection: Connection(baseURL: testBaseURL, apiKey: testAPIKey), client: client,
-      syncService: service, sync: sync)
+      syncService: service, sync: sync, open: { [opener] in opener.open($0) })
   }
 
   /// Conversations, messages, recommendations (as in `CacheReader.counts()`, first three).

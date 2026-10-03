@@ -8,6 +8,7 @@ struct RootView: View {
   let container: ModelContainer
 
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.openURL) private var openURL
   @State private var connection: Connection?
   @State private var sync = SyncController()
   @State private var session: AppSession?
@@ -44,7 +45,7 @@ struct RootView: View {
       sync.connect(service)
       let session = AppSession(
         connection: connection, client: configuration.makeClient(connection),
-        syncService: service, sync: sync)
+        syncService: service, sync: sync, open: { [openURL] in openURL($0) })
       self.session = session
       async let synced: Void = sync.syncIfStale()
       async let models: Void = session.loadModels()

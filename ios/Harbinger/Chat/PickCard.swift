@@ -1,4 +1,3 @@
-import SwiftData
 import SwiftUI
 
 /// One recommendation in the chat: poster, title, year, short reason, decision badge.
@@ -48,13 +47,15 @@ extension DecisionBadge {
   }
 }
 
-/// TMDB poster at `w185`; a neutral shape with the title's initial while loading or missing.
+/// TMDB poster (`w185` on cards, `w500` on the detail screen); a neutral shape with the
+/// title's initial while loading or missing.
 struct Poster: View {
   let path: String?
   let title: String
+  var size: TMDBImageSize = .w185
 
   var body: some View {
-    AsyncImage(url: tmdbImageURL(path: path, size: .w185)) { phase in
+    AsyncImage(url: tmdbImageURL(path: path, size: size)) { phase in
       if let image = phase.image {
         image
           .resizable()
@@ -74,24 +75,5 @@ struct Poster: View {
           .font(.title2)
           .foregroundStyle(.secondary)
       }
-  }
-}
-
-/// I3 stand-in for the pick detail screen (I4).
-struct RecommendationPlaceholderView: View {
-  @Query private var picks: [CachedRecommendation]
-
-  init(recommendationID: String) {
-    _picks = Query(filter: #Predicate<CachedRecommendation> { $0.id == recommendationID })
-  }
-
-  var body: some View {
-    VStack(spacing: 8) {
-      Text(picks.first?.title ?? "")
-        .font(.title2)
-      Text("Details coming in I4")
-        .foregroundStyle(.secondary)
-    }
-    .navigationBarTitleDisplayMode(.inline)
   }
 }

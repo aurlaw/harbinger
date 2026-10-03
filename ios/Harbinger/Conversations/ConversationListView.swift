@@ -5,7 +5,7 @@ import SwiftUI
 nonisolated enum Route: Hashable, Sendable {
   case conversation(String)
   case newConversation
-  /// A pick card. Detail screen arrives in I4.
+  /// A pick card's detail screen.
   case recommendation(String)
   /// Interim settings: the sync status screen (I5 replaces it).
   case settings
@@ -52,7 +52,7 @@ struct ConversationListView: View {
       case .newConversation:
         ChatView(session: session, conversationID: nil)
       case .recommendation(let id):
-        RecommendationPlaceholderView(recommendationID: id)
+        PickDetailView(recommendationID: id)
       case .settings:
         SyncStatusView(host: session.connection.baseURL.host(), sync: session.sync)
           .navigationTitle("Settings")
