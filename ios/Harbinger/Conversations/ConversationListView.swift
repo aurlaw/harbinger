@@ -13,6 +13,8 @@ nonisolated enum Route: Hashable, Sendable {
   /// The track record's recent outcomes, pushed from Settings. Carries the list itself:
   /// outcomes are fetched, not cached, so there is nothing to look up by id.
   case recentOutcomes([Outcome])
+  /// Every film marked Maybe.
+  case maybes
 }
 
 /// The root screen: conversations, newest first.
@@ -109,6 +111,13 @@ private struct ConversationList: View {
     }
     .navigationTitle("Harbinger")
     .toolbar {
+      // Always shown: the Maybes screen has its own empty state.
+      ToolbarItem(placement: .topBarLeading) {
+        NavigationLink(value: Route.maybes) {
+          Label("Maybes", systemImage: "questionmark.circle")
+        }
+        .tint(.accentColor)
+      }
       ToolbarItem(placement: .topBarTrailing) {
         NavigationLink(value: Route.settings) {
           Label("Settings", systemImage: "gearshape")
@@ -136,6 +145,8 @@ private struct ConversationList: View {
         TasteProfileEditorView(session: session)
       case .recentOutcomes(let outcomes):
         RecentOutcomesView(outcomes: outcomes)
+      case .maybes:
+        MaybesView()
       }
     }
   }
