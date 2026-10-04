@@ -12,7 +12,8 @@
 			"custom_domain": true
 		}
 	],
-	// Fridays 20:00 UTC: recent-releases refresh. Dispatched on in src/index.ts.
+	// Thursdays 20:00 UTC (Cloudflare counts days 1 = Sunday, so 5 = Thursday): recent-releases refresh.
+	// Dispatched on in src/index.ts.
 	"triggers": {
 		"crons": ["0 20 * * 5"]
 	},

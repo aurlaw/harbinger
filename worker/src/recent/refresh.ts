@@ -6,7 +6,7 @@ import { RECENT_RELEASES_JOB, type RecentRelease, loadJobState, recordJobFailure
 // the list in D1. The list is only ever replaced by a successful, non-empty
 // fetch — a failure leaves it exactly as it was.
 
-/** Fridays 20:00 UTC; must match `triggers.crons` in wrangler.jsonc. */
+/** Thursdays 20:00 UTC (Cloudflare cron: 1 = Sunday, so 5 = Thursday); must match `triggers.crons` in wrangler.jsonc. */
 export const RECENT_RELEASES_CRON = "0 20 * * 5";
 
 const DISCOVER_PATH = "/discover/movie";
