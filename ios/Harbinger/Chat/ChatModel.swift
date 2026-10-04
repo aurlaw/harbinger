@@ -13,6 +13,11 @@ final class ChatModel {
   var selectedModel: String?
   /// The send started by this screen, for tests and callers that want to wait.
   private(set) var sendTask: Task<Void, Never>?
+  /// Set once the open conversation has disappeared from the cache (a sync tombstone, or a
+  /// `404` from rename): the screen pops back to the list.
+  private(set) var shouldDismiss = false
+  /// The conversation has been seen in the cache; before that an empty query is just loading.
+  private var hasLoaded = false
 
   init(session: AppSession, conversationID: String?) {
     self.session = session
@@ -47,6 +52,16 @@ final class ChatModel {
   /// Chips are live only on the latest message, and only while nothing is sending.
   func chipsEnabled(messageID: String, latestMessageID: String?) -> Bool {
     messageID == latestMessageID && !isSending
+  }
+
+  /// The transcript reports whether its conversation is in the cache. A conversation that
+  /// was there and no longer is has been deleted.
+  func conversationIsCached(_ isCached: Bool) {
+    if isCached {
+      hasLoaded = true
+    } else if hasLoaded, !isNew {
+      shouldDismiss = true
+    }
   }
 
   func send() {

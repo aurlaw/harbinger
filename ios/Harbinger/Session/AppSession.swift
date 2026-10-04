@@ -73,6 +73,26 @@ nonisolated struct DecisionTarget: Hashable, Sendable {
   }
 }
 
+nonisolated enum DeleteOutcome: Equatable, Sendable {
+  /// Gone from the server (deleted now, or already gone) and removed from the cache.
+  case deleted
+  case failed(String)
+  /// A turn is in flight for that conversation; no request was made.
+  case blocked
+  /// A delete for that conversation is already in flight; no request was made.
+  case rejected
+}
+
+nonisolated enum RenameOutcome: Equatable, Sendable {
+  case renamed
+  /// Includes a `404`: the conversation is gone, and has been removed from the cache.
+  case failed(String)
+  /// Empty or over `TitleLimit.maxLength` after trimming; no request was made.
+  case invalid
+  /// A rename for that conversation is already in flight; no request was made.
+  case rejected
+}
+
 /// Everything a connected screen needs: the API client, the cache writer, and the sync
 /// controller. Created by `RootView` once a connection exists and injected with
 /// `.environment(_:)`.
@@ -99,6 +119,10 @@ final class AppSession {
   private(set) var pendingDecisions: [Int: DecisionRequest] = [:]
   /// The last failed decision per TMDB id, kept for Retry until the next attempt.
   private(set) var decisionFailures: [Int: DecisionFailure] = [:]
+
+  /// Conversations with a delete / rename in flight, by id.
+  private(set) var deleting: Set<String> = []
+  private(set) var renaming: Set<String> = []
 
   private let now: () -> Date
   /// Opens external links (Letterboxd after a Yes). `RootView` passes the `openURL` action.
@@ -161,6 +185,89 @@ final class AppSession {
   func retry(_ target: TurnTarget) async -> TurnOutcome {
     guard let failure = failures[target] else { return .rejected }
     return await send(failure.request)
+  }
+
+  // MARK: - Conversation management
+
+  func isDeleting(_ id: String) -> Bool {
+    deleting.contains(id)
+  }
+
+  /// Deletes a conversation on the server, then drops it from the cache (decisions are
+  /// kept). Refused while a turn is in flight for it. Like turns, the request runs in a
+  /// task the session owns.
+  @discardableResult
+  func deleteConversation(id: String) async -> DeleteOutcome {
+    guard !isSending(.conversation(id)) else { return .blocked }
+    guard !deleting.contains(id) else { return .rejected }
+    deleting.insert(id)
+
+    let task = Task {
+      let outcome = await self.performDelete(id)
+      self.deleting.remove(id)
+      return outcome
+    }
+    return await task.value
+  }
+
+  /// Renames a conversation; the cache only changes from the server's response. Allowed
+  /// while a turn is in flight (the server's turn save doesn't touch the title).
+  @discardableResult
+  func renameConversation(id: String, title: String) async -> RenameOutcome {
+    let title = TitleLimit.trimmed(title)
+    guard TitleLimit.isValid(title) else { return .invalid }
+    guard !renaming.contains(id) else { return .rejected }
+    renaming.insert(id)
+
+    let task = Task {
+      let outcome = await self.performRename(id, title: title)
+      self.renaming.remove(id)
+      return outcome
+    }
+    return await task.value
+  }
+
+  private func performDelete(_ id: String) async -> DeleteOutcome {
+    do {
+      try await client.deleteConversation(id: id)
+    } catch .server(404, _, _, _) {
+      // Already gone on the server: the same result.
+    } catch {
+      return .failed(deleteErrorMessage(error))
+    }
+    await removeFromCache(id)
+    return .deleted
+  }
+
+  private func performRename(_ id: String, title: String) async -> RenameOutcome {
+    let conversation: Conversation
+    do {
+      conversation = try await client.renameConversation(id: id, title: title)
+    } catch {
+      // A 404 means the conversation is gone (deleted elsewhere).
+      if case .server(404, _, _, _) = error {
+        await removeFromCache(id)
+      }
+      return .failed(renameErrorMessage(error))
+    }
+    // Saved on the server. If caching it fails, a sync will deliver it.
+    do {
+      try await syncService.ingest(conversation)
+    } catch {
+      await sync.syncNow()
+    }
+    return .renamed
+  }
+
+  /// The server no longer has the conversation. If dropping it fails, a sync delivers the
+  /// tombstone.
+  private func removeFromCache(_ id: String) async {
+    do {
+      try await syncService.removeConversation(id: id)
+    } catch {
+      await sync.syncNow()
+    }
+    failures[.conversation(id)] = nil
   }
 
   // MARK: - Decisions

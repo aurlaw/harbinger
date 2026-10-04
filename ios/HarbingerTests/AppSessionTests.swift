@@ -9,15 +9,23 @@ import Testing
 struct SessionHarness {
   let turns: TurnScript
   let decisions: DecisionScript
+  let management: ManagementScript
+  let syncs: SyncRecorder
   let opener = OpenRecorder()
   let container: ModelContainer
   let session: AppSession
 
-  init(turns: TurnScript = TurnScript(), decisions: DecisionScript = DecisionScript()) throws {
+  init(
+    turns: TurnScript = TurnScript(), decisions: DecisionScript = DecisionScript(),
+    management: ManagementScript = ManagementScript(), syncs: SyncRecorder = SyncRecorder()
+  ) throws {
     self.turns = turns
     self.decisions = decisions
+    self.management = management
+    self.syncs = syncs
     container = try CacheStore.inMemory()
-    let client = FakeAPIClient(turns: turns, decisions: decisions)
+    let client = FakeAPIClient(
+      syncs: syncs, turns: turns, decisions: decisions, management: management)
     let service = SyncService(modelContainer: container, client: client)
     let sync = SyncController(service: service)
     session = AppSession(

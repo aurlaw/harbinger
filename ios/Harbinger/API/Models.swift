@@ -25,6 +25,8 @@ nonisolated struct Conversation: Codable, Sendable, Equatable {
   let questionRounds: Int
   let createdAt: Date
   let updatedAt: Date
+  /// Set on a tombstone (a deleted conversation in a `/sync` delta); absent or `null` when live.
+  var deletedAt: Date?
 }
 
 /// `POST /conversations`, `POST /conversations/{id}/messages`, `GET /conversations/{id}`.
@@ -276,6 +278,10 @@ nonisolated struct SendMessageBody: Codable, Sendable, Equatable {
 nonisolated struct DecisionBody: Codable, Sendable, Equatable {
   let decision: Decision.Choice
   let conversationId: String
+}
+
+nonisolated struct RenameConversationBody: Codable, Sendable, Equatable {
+  let title: String
 }
 
 nonisolated struct TasteProfileBody: Codable, Sendable, Equatable {

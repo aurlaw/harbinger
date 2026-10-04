@@ -4,14 +4,22 @@ import SwiftUI
 /// A conversation: messages, pick cards, and the composer. Also used for a new conversation,
 /// which switches to its returned id in place after the first turn.
 struct ChatView: View {
+  @Environment(\.dismiss) private var dismiss
   @State private var model: ChatModel
+  @State private var actions: ConversationActions
 
   init(session: AppSession, conversationID: String?) {
     _model = State(initialValue: ChatModel(session: session, conversationID: conversationID))
+    _actions = State(initialValue: ConversationActions(session: session))
+  }
+
+  /// The conversation was deleted. An error alert (rename's "no longer exists") is read first.
+  private var shouldPop: Bool {
+    model.shouldDismiss && actions.errorMessage == nil
   }
 
   var body: some View {
-    ChatTranscript(model: model, conversationID: model.conversationID)
+    ChatTranscript(model: model, actions: actions, conversationID: model.conversationID)
       // A new conversation's query restarts once it has an id.
       .id(model.conversationID)
       .safeAreaInset(edge: .bottom) {
@@ -23,6 +31,12 @@ struct ChatView: View {
           ToolbarItem(placement: .topBarTrailing) {
             ModelPicker(model: model, allowed: allowed)
           }
+        }
+      }
+      .actionErrorAlert(actions)
+      .onChange(of: shouldPop) {
+        if shouldPop {
+          dismiss()
         }
       }
   }
@@ -51,14 +65,17 @@ private struct ModelPicker: View {
 /// The scrolling transcript. Queries by conversation id, so it is rebuilt when the id changes.
 private struct ChatTranscript: View {
   let model: ChatModel
+  let actions: ConversationActions
 
+  @State private var renameTarget: RenameTarget?
   @Query private var conversations: [CachedConversation]
   @Query private var messages: [CachedMessage]
   @Query private var recommendations: [CachedRecommendation]
   @Query private var decisions: [CachedDecision]
 
-  init(model: ChatModel, conversationID: String?) {
+  init(model: ChatModel, actions: ConversationActions, conversationID: String?) {
     self.model = model
+    self.actions = actions
     let id = conversationID ?? ""
     _conversations = Query(filter: #Predicate<CachedConversation> { $0.id == id })
     _messages = Query(
@@ -113,6 +130,31 @@ private struct ChatTranscript: View {
       }
     }
     .navigationTitle(title)
+    .toolbar {
+      // Existing conversations only: tapping the title renames, as in the list's menu.
+      if let conversation = conversations.first {
+        ToolbarItem(placement: .principal) {
+          Button {
+            renameTarget = RenameTarget(id: conversation.id, title: conversation.title)
+          } label: {
+            HStack(spacing: 4) {
+              Text(title)
+                .font(.headline)
+                .lineLimit(1)
+              Image(systemName: "chevron.down")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            }
+          }
+          .buttonStyle(.plain)
+          .accessibilityHint("Renames the conversation")
+        }
+      }
+    }
+    .renameAlert($renameTarget) { id, title in actions.rename(id, to: title) }
+    .onChange(of: conversations.isEmpty, initial: true) {
+      model.conversationIsCached(!conversations.isEmpty)
+    }
   }
 
   private static let bottom = "bottom"

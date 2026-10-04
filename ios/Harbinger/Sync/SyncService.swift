@@ -7,13 +7,15 @@ nonisolated enum SyncError: Error, Sendable, Equatable {
   case store(String)
 }
 
-/// Rows upserted by one sync.
+/// Rows upserted (and conversations deleted by tombstones) by one sync.
 nonisolated struct SyncResult: Sendable, Equatable {
   var conversations = 0
   var messages = 0
   var recommendations = 0
   var decisions = 0
   var profileUpdated = false
+  /// Cached conversations removed by tombstones.
+  var conversationsDeleted = 0
 }
 
 /// What the sync controller needs from the service (a seam for tests).
@@ -126,7 +128,8 @@ actor SyncService: ModelActor, SyncServicing {
       log.info(
         """
         Sync saved: \(result.conversations) conversations, \(result.messages) messages, \
-        \(result.recommendations) recommendations, \(result.decisions) decisions; \
+        \(result.recommendations) recommendations, \(result.decisions) decisions, \
+        \(result.conversationsDeleted) conversations deleted; \
         next since \(response.nextSince, privacy: .public)
         """)
       return .success(result)
@@ -142,6 +145,24 @@ actor SyncService: ModelActor, SyncServicing {
   /// A new chat turn: the conversation, its messages, and their nested recommendations.
   func ingest(_ response: ConversationResponse) throws(SyncError) {
     try write(CacheBatch(response))
+  }
+
+  /// A rename response: the conversation row only. One with `deletedAt` set is a tombstone.
+  func ingest(_ conversation: Conversation) throws(SyncError) {
+    try write(CacheBatch(conversations: [conversation]))
+  }
+
+  /// Drops a conversation (with its messages and recommendations) after the server deleted
+  /// it, or said it is already gone. Decisions are kept. An unknown id is not an error.
+  func removeConversation(id: String) throws(SyncError) {
+    do {
+      guard try deleteConversation(id: id) else { return }
+      try beforeSave?()
+      try modelContext.save()
+    } catch {
+      modelContext.rollback()
+      throw .store(String(describing: error))
+    }
   }
 
   func ingest(_ decision: Decision) throws(SyncError) {
@@ -175,7 +196,7 @@ actor SyncService: ModelActor, SyncServicing {
     return state
   }
 
-  // Children first; nothing else in the app deletes cached rows.
+  // Children first. The only other deletes are conversation tombstones / `removeConversation`.
   private func deleteAll() throws {
     try deleteEvery(CachedRecommendation.self)
     try deleteEvery(CachedMessage.self)

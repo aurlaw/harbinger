@@ -9,6 +9,10 @@ nonisolated protocol APIClient: Sendable {
   func sendMessage(conversationID: String, text: String?, justPick: Bool) async throws(APIError)
     -> ConversationResponse
   func conversation(id: String) async throws(APIError) -> ConversationResponse
+  /// Returns the bare conversation object, not a `ConversationResponse`.
+  func renameConversation(id: String, title: String) async throws(APIError) -> Conversation
+  /// Soft delete on the server; an already-deleted conversation also succeeds.
+  func deleteConversation(id: String) async throws(APIError)
   func setDecision(tmdbID: Int, decision: Decision.Choice, conversationID: String)
     async throws(APIError) -> Decision
   /// `nil` when no profile has been saved (`404 no_taste_profile`).
@@ -66,6 +70,18 @@ nonisolated final class URLSessionAPIClient: APIClient {
 
   func conversation(id: String) async throws(APIError) -> ConversationResponse {
     try await send(request("GET", ["conversations", id], timeout: RequestTimeout.standard))
+  }
+
+  func renameConversation(id: String, title: String) async throws(APIError) -> Conversation {
+    try await send(
+      request(
+        "PATCH", ["conversations", id], body: RenameConversationBody(title: title),
+        timeout: RequestTimeout.standard))
+  }
+
+  func deleteConversation(id: String) async throws(APIError) {
+    try await sendNoContent(
+      request("DELETE", ["conversations", id], timeout: RequestTimeout.standard))
   }
 
   func setDecision(tmdbID: Int, decision: Decision.Choice, conversationID: String)
@@ -136,6 +152,22 @@ nonisolated final class URLSessionAPIClient: APIClient {
   }
 
   private func send<T: Decodable>(_ request: URLRequest) async throws(APIError) -> T {
+    let data = try await perform(request)
+    do {
+      return try makeDecoder().decode(T.self, from: data)
+    } catch {
+      throw .decoding(String(describing: error))
+    }
+  }
+
+  /// For endpoints that answer `204`: statuses and errors map as in `send`, but a `2xx`
+  /// body is not decoded.
+  private func sendNoContent(_ request: URLRequest) async throws(APIError) {
+    _ = try await perform(request)
+  }
+
+  /// Runs the request and returns a `2xx` body; everything else is thrown as an `APIError`.
+  private func perform(_ request: URLRequest) async throws(APIError) -> Data {
     let data: Data
     let response: URLResponse
     do {
@@ -149,11 +181,7 @@ nonisolated final class URLSessionAPIClient: APIClient {
     guard let http = response as? HTTPURLResponse else { throw .invalidResponse }
     switch http.statusCode {
     case 200..<300:
-      do {
-        return try makeDecoder().decode(T.self, from: data)
-      } catch {
-        throw .decoding(String(describing: error))
-      }
+      return data
     case 401:
       throw .unauthorized
     default:

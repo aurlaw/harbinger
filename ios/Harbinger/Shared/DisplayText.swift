@@ -20,6 +20,28 @@ nonisolated func turnErrorMessage(_ error: APIError) -> String {
   }
 }
 
+/// Error text for a failed conversation delete. A `404` never gets here: it means the
+/// conversation is already gone, which the session treats as success.
+nonisolated func deleteErrorMessage(_ error: APIError) -> String {
+  switch error {
+  case .unauthorized: "API key rejected."
+  case .network: "Can't reach the server."
+  case .server: "Couldn't delete — try again."
+  case .decoding, .invalidResponse: "Something went wrong."
+  }
+}
+
+/// Error text for a failed conversation rename.
+nonisolated func renameErrorMessage(_ error: APIError) -> String {
+  switch error {
+  case .unauthorized: "API key rejected."
+  case .network: "Can't reach the server."
+  case .server(404, _, _, _): "This conversation no longer exists."
+  case .server: "Couldn't rename — try again."
+  case .decoding, .invalidResponse: "Something went wrong."
+  }
+}
+
 /// A user bubble's text: a just-pick turn with no text reads "Just pick for me".
 nonisolated func userBubbleText(text: String?, justPick: Bool) -> String {
   if let text, !text.isEmpty { return text }
@@ -85,5 +107,24 @@ nonisolated enum MessageLimit {
 
   static func length(_ text: String) -> Int {
     trimmed(text).utf16.count
+  }
+}
+
+/// The Worker's title rule: 1–100 characters after trimming, counted as code points —
+/// `unicodeScalars` here. `String.count` counts grapheme clusters and would disagree on
+/// emoji.
+nonisolated enum TitleLimit {
+  static let maxLength = 100
+
+  static func trimmed(_ title: String) -> String {
+    title.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  static func length(_ title: String) -> Int {
+    trimmed(title).unicodeScalars.count
+  }
+
+  static func isValid(_ title: String) -> Bool {
+    (1...maxLength).contains(length(title))
   }
 }

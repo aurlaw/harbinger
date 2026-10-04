@@ -247,34 +247,89 @@ final class DecisionScript: Sendable {
   }
 }
 
-/// `health()`, `sync(since:)`, `models()`, chat turns, and decisions are scripted; everything
-/// else fails.
+/// Scripts `renameConversation` / `deleteConversation`: records each call and answers with
+/// the next queued result of its kind.
+final class ManagementScript: Sendable {
+  enum Call: Equatable, Sendable {
+    case rename(id: String, title: String)
+    case delete(id: String)
+  }
+
+  private struct State {
+    var calls: [Call] = []
+    var renames: [Result<Conversation, APIError>]
+    var deletes: [APIError?]
+  }
+
+  private let state: Mutex<State>
+  /// Holds each request open, so tests can act while it is in flight.
+  private let delay: Duration?
+
+  /// - Parameter deletes: one entry per expected delete; `nil` is a success.
+  init(
+    renames: [Result<Conversation, APIError>] = [], deletes: [APIError?] = [],
+    delay: Duration? = nil
+  ) {
+    self.state = Mutex(State(renames: renames, deletes: deletes))
+    self.delay = delay
+  }
+
+  var calls: [Call] { state.withLock { $0.calls } }
+
+  fileprivate func rename(id: String, title: String) async -> Result<Conversation, APIError> {
+    let result = state.withLock { state -> Result<Conversation, APIError> in
+      state.calls.append(.rename(id: id, title: title))
+      return state.renames.isEmpty ? .failure(.invalidResponse) : state.renames.removeFirst()
+    }
+    if let delay {
+      try? await Task.sleep(for: delay)
+    }
+    return result
+  }
+
+  fileprivate func delete(id: String) async -> APIError? {
+    let error = state.withLock { state -> APIError? in
+      state.calls.append(.delete(id: id))
+      return state.deletes.isEmpty ? .invalidResponse : state.deletes.removeFirst()
+    }
+    if let delay {
+      try? await Task.sleep(for: delay)
+    }
+    return error
+  }
+}
+
+/// `health()`, `sync(since:)`, `models()`, chat turns, decisions, and conversation rename /
+/// delete are scripted; everything else fails.
 final class FakeAPIClient: APIClient {
   let connection: Connection
   let recorder: HealthRecorder
   let syncs: SyncRecorder?
   let turns: TurnScript?
   let decisions: DecisionScript?
+  let management: ManagementScript?
 
   init(
     connection: Connection, recorder: HealthRecorder, syncs: SyncRecorder? = nil,
-    turns: TurnScript? = nil, decisions: DecisionScript? = nil
+    turns: TurnScript? = nil, decisions: DecisionScript? = nil,
+    management: ManagementScript? = nil
   ) {
     self.connection = connection
     self.recorder = recorder
     self.syncs = syncs
     self.turns = turns
     self.decisions = decisions
+    self.management = management
   }
 
   convenience init(
     syncs: SyncRecorder = SyncRecorder(), turns: TurnScript? = nil,
-    decisions: DecisionScript? = nil
+    decisions: DecisionScript? = nil, management: ManagementScript? = nil
   ) {
     self.init(
       connection: Connection(baseURL: testBaseURL, apiKey: testAPIKey),
       recorder: HealthRecorder(result: .success(HealthResponse(status: "ok"))), syncs: syncs,
-      turns: turns, decisions: decisions)
+      turns: turns, decisions: decisions, management: management)
   }
 
   func health() async throws(APIError) -> HealthResponse {
@@ -300,6 +355,14 @@ final class FakeAPIClient: APIClient {
   }
   func conversation(id: String) async throws(APIError) -> ConversationResponse {
     throw .invalidResponse
+  }
+  func renameConversation(id: String, title: String) async throws(APIError) -> Conversation {
+    guard let management else { throw .invalidResponse }
+    return try await management.rename(id: id, title: title).get()
+  }
+  func deleteConversation(id: String) async throws(APIError) {
+    guard let management else { throw .invalidResponse }
+    if let error = await management.delete(id: id) { throw error }
   }
   func setDecision(tmdbID: Int, decision: Decision.Choice, conversationID: String)
     async throws(APIError) -> Decision

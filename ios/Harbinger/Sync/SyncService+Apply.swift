@@ -22,7 +22,10 @@ nonisolated struct CacheBatch: Sendable {
   /// `nil` means unchanged, never "delete".
   var profile: TasteProfile?
 
-  init(decisions: [Decision] = [], profile: TasteProfile? = nil) {
+  init(
+    conversations: [Conversation] = [], decisions: [Decision] = [], profile: TasteProfile? = nil
+  ) {
+    self.conversations = conversations
     self.decisions = decisions
     self.profile = profile
   }
@@ -66,7 +69,10 @@ nonisolated struct CacheBatch: Sendable {
 //   (never rely on `@Attribute(.unique)` insert collisions)
 // - order: conversations → messages → recommendations → decisions → profile
 // - a child whose parent is neither in the batch nor cached is skipped and logged
-// - empty arrays and a nil profile mean "no change"; nothing is ever deleted here
+// - empty arrays and a nil profile mean "no change"
+// - only conversation tombstones (`deletedAt` set) delete: the cached conversation goes,
+//   with its messages and recommendations. Decisions are never deleted or modified
+//   because of one, and a tombstone for an uncached conversation is ignored
 // - applying the same batch twice leaves identical state
 extension SyncService {
   /// Applies `batch` to the context **without saving**. The caller saves or rolls back.
@@ -74,7 +80,16 @@ extension SyncService {
     var result = SyncResult()
 
     var conversations = try cachedConversations(ids: batch.conversations.map(\.id))
+    var tombstoned: Set<String> = []
     for dto in batch.conversations {
+      if dto.deletedAt != nil {
+        tombstoned.insert(dto.id)
+        if let row = conversations.removeValue(forKey: dto.id) {
+          try delete(row)
+          result.conversationsDeleted += 1
+        }
+        continue
+      }
       let row = conversations[dto.id] ?? inserted(CachedConversation(id: dto.id))
       conversations[dto.id] = row
       row.apply(dto)
@@ -84,12 +99,15 @@ extension SyncService {
     // Parents that aren't in this batch may already be cached (ingest, or a later delta).
     let otherConversations = Set(batch.messages.compactMap(\.conversationID))
       .subtracting(conversations.keys)
+      .subtracting(tombstoned)
     if !otherConversations.isEmpty {
       conversations.merge(try cachedConversations(ids: Array(otherConversations))) { old, _ in old }
     }
 
     var messages = try cachedMessages(ids: batch.messages.map(\.message.id))
     for item in batch.messages {
+      // The server sends no content for a deleted conversation; this is a guard.
+      if let conversationID = item.conversationID, tombstoned.contains(conversationID) { continue }
       guard let conversationID = item.conversationID, let parent = conversations[conversationID]
       else {
         log.error(
@@ -113,10 +131,12 @@ extension SyncService {
       ids: batch.recommendations.map(\.recommendation.id))
     for item in batch.recommendations {
       let dto = item.recommendation
+      if let conversationID = item.conversationID, tombstoned.contains(conversationID) { continue }
       guard let messageID = item.messageID, let parent = messages[messageID] else {
         log.error("Skipped recommendation \(dto.id, privacy: .public): its message isn't cached")
         continue
       }
+      if tombstoned.contains(parent.conversationID) { continue }
       let row = recommendations[dto.id] ?? inserted(CachedRecommendation(id: dto.id))
       recommendations[dto.id] = row
       row.apply(
@@ -140,6 +160,28 @@ extension SyncService {
     }
 
     return result
+  }
+
+  /// Deletes the cached conversation, if any, **without saving**. Decisions are untouched.
+  func deleteConversation(id: String) throws -> Bool {
+    guard let row = try cachedConversations(ids: [id])[id] else { return false }
+    try delete(row)
+    return true
+  }
+
+  /// Deletes a conversation with its messages and recommendations. The children are fetched
+  /// and deleted explicitly, not left to the cascade rule or reached through the
+  /// relationship arrays: after either of those, `rollback()` (a failed save) trips an
+  /// assertion inside SwiftData (iOS 26.5).
+  private func delete(_ conversation: CachedConversation) throws {
+    let id = conversation.id
+    let recommendations = try modelContext.fetch(
+      FetchDescriptor<CachedRecommendation>(predicate: #Predicate { $0.conversationID == id }))
+    let messages = try modelContext.fetch(
+      FetchDescriptor<CachedMessage>(predicate: #Predicate { $0.conversationID == id }))
+    for row in recommendations { modelContext.delete(row) }
+    for row in messages { modelContext.delete(row) }
+    modelContext.delete(conversation)
   }
 
   private func inserted<Model: PersistentModel>(_ row: Model) -> Model {
