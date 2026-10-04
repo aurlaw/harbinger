@@ -198,14 +198,14 @@ export const pick = (title: string, year: number) => ({
 export const recs = (...picks: unknown[]) => ({ kind: "recommendations", question: "", chips: [], picks });
 
 /**
- * Each conversation-test file starts from empty tables (W4 + W5 + W8 + library).
+ * Each conversation-test file starts from empty tables (W4 + W5 + W8 + W9 + library).
  * The recent-releases job is marked fresh so turns don't trigger the stale
  * fallback; tests of the fallback call setRecentReleasesJob themselves.
  */
 export async function clearAll(): Promise<void> {
   await env.DB.batch(
     // taste_profile first: it references imports.
-    ["taste_profile", "decisions", "recommendations", "messages", "conversations", "recent_releases"].map((t) =>
+    ["taste_profile", "decisions", "recommendations", "messages", "conversations", "recent_releases", "pick_log"].map((t) =>
       env.DB.prepare(`DELETE FROM ${t}`),
     ),
   );

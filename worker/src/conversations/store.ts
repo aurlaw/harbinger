@@ -122,9 +122,18 @@ const INSERT_RECOMMENDATIONS = `
          json_extract(value, '$.tmdb_json'), json_extract(value, '$.created_at')
   FROM json_each(?1) WHERE ${IS_LIVE}`;
 
+// The durable log behind pick outcomes: same payload and live condition as the
+// recommendations insert. DO NOTHING keeps each film's first recommendation.
+const INSERT_PICK_LOG = `
+  INSERT INTO pick_log (tmdb_id, title, year, model, conversation_id, first_recommended_at)
+  SELECT json_extract(value, '$.tmdb_id'), json_extract(value, '$.title'), json_extract(value, '$.year'),
+         ?3, json_extract(value, '$.conversation_id'), json_extract(value, '$.created_at')
+  FROM json_each(?1) WHERE ${IS_LIVE}
+  ON CONFLICT(tmdb_id) DO NOTHING`;
+
 /**
  * Writes one exchange atomically: (conversation), user message, assistant
- * message, recommendations, conversation update. A failed statement rolls
+ * message, recommendations, pick log, conversation update. A failed statement rolls
  * back the whole batch. Throws ConversationDeleted, having written nothing,
  * if an existing conversation was deleted in the meantime.
  */
@@ -133,10 +142,12 @@ export async function saveTurn(db: D1Database, write: TurnWrite): Promise<void> 
   const message = (m: MessageRow) =>
     db.prepare(INSERT_MESSAGE).bind(m.id, m.conversation_id, m.seq, m.role, m.kind, m.content_json, m.created_at);
 
+  const picks = JSON.stringify(write.recommendations);
   const statements = [
     message(user),
     message(assistant),
-    db.prepare(INSERT_RECOMMENDATIONS).bind(JSON.stringify(write.recommendations), c.id),
+    db.prepare(INSERT_RECOMMENDATIONS).bind(picks, c.id),
+    db.prepare(INSERT_PICK_LOG).bind(picks, c.id, c.model),
   ];
   if (write.create) {
     statements.unshift(

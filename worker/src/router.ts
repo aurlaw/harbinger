@@ -13,6 +13,7 @@ import { listFilms, setOverride, upsertFilms } from "./library/films";
 import { latestImport, runImport } from "./library/imports";
 import { recordMatches } from "./library/matches";
 import { runRecentReleases } from "./recent/handlers";
+import { outcomeStats } from "./outcomes/handlers";
 import { movieDetails } from "./tmdb/movie";
 import { sync } from "./sync/handlers";
 import { draftTasteProfile, getTasteProfile, putTasteProfile } from "./taste/handlers";
@@ -46,6 +47,7 @@ const routes = new Map<string, Map<string, Handler>>([
   ],
   ["/taste-profile/draft", new Map([["POST", draftTasteProfile]])],
   ["/sync", new Map([["GET", sync]])],
+  ["/stats/outcomes", new Map([["GET", outcomeStats]])],
   ["/jobs/recent-releases", new Map([["POST", runRecentReleases]])],
 ]);
 

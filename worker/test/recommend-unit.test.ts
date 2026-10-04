@@ -98,6 +98,7 @@ describe("prompt", () => {
       horrorRatings: [{ name: "Hereditary", year: 2018, half_stars: 9 }],
       seen: [],
       watchlist: [],
+      outcomes: [],
       recentReleases: [],
     };
     const system = buildSystemPrompt({ ...library, tasteProfile: null });

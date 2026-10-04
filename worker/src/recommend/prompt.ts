@@ -1,4 +1,5 @@
 import type { ClaudeMessage } from "../claude/client";
+import { type OutcomeLine, PROMPT_OUTCOMES, outcomesSection } from "../outcomes/prompt";
 import { RECENT_RELEASES, type RecentReleaseLine, recentReleasesSection } from "../recent/prompt";
 import { MAX_CHIPS, MAX_PICKS } from "./schema";
 
@@ -11,6 +12,8 @@ export interface LibraryPrompt {
   horrorRatings: { name: string; year: number; half_stars: number }[];
   seen: { name: string; year: number }[];
   watchlist: { name: string; year: number }[];
+  /** Past picks that have since been rated, most recent first (capped). */
+  outcomes: OutcomeLine[];
   /** Recent TMDB horror releases in rank order, minus library films. */
   recentReleases: RecentReleaseLine[];
   /** The saved taste profile's content, or null when none is saved. */
@@ -40,18 +43,20 @@ const WATCHLIST = `
 const TASTE_PROFILE = "SELECT content FROM taste_profile WHERE id = 1";
 
 export async function loadLibraryPrompt(db: D1Database): Promise<LibraryPrompt> {
-  const [ratings, seen, watchlist, profile, recent] = await db.batch([
+  const [ratings, seen, watchlist, profile, recent, outcomes] = await db.batch([
     db.prepare(HORROR_RATINGS),
     db.prepare(SEEN),
     db.prepare(WATCHLIST),
     db.prepare(TASTE_PROFILE),
     db.prepare(RECENT_RELEASES),
+    db.prepare(PROMPT_OUTCOMES),
   ]);
   return {
     horrorRatings: (ratings?.results ?? []) as LibraryPrompt["horrorRatings"],
     seen: (seen?.results ?? []) as LibraryPrompt["seen"],
     watchlist: (watchlist?.results ?? []) as LibraryPrompt["watchlist"],
     tasteProfile: (profile?.results[0] as { content: string } | undefined)?.content ?? null,
+    outcomes: (outcomes?.results ?? []) as LibraryPrompt["outcomes"],
     recentReleases: (recent?.results ?? []) as LibraryPrompt["recentReleases"],
   };
 }
@@ -61,6 +66,7 @@ const INSTRUCTIONS = `You recommend horror films to one person. You have two sig
 2. The taste profile is the person's own correction — it overrides patterns you would infer from the ratings.
 3. The ratings are the evidence for everything the profile doesn't cover.
 The "Never recommend" lists are exclusions only — never a signal of taste.
+The "Harbinger picks they've since rated" section is direct feedback on your earlier recommendations — repeat what hit, avoid what missed.
 
 Each reply is exactly one of:
 - kind "question": one clarifying question in "question", with 2–${MAX_CHIPS} short tappable answers in "chips" (a few words each). Leave "picks" empty.
@@ -90,7 +96,7 @@ export const NO_TASTE_PROFILE = "(No taste profile yet — rely on the ratings.)
 
 /**
  * Builds the system prompt: instructions → taste profile → horror ratings →
- * recent releases → never-recommend (seen) → never-recommend (watchlist). The profile section is
+ * picks since rated → recent releases → never-recommend (seen) → never-recommend (watchlist). The profile section is
  * always present so the prompt shape is stable.
  */
 export function buildSystemPrompt(library: LibraryPrompt): string {
@@ -101,6 +107,7 @@ export function buildSystemPrompt(library: LibraryPrompt): string {
       library.tasteProfile === null ? NO_TASTE_PROFILE : `<taste_profile>\n${library.tasteProfile}\n</taste_profile>`
     }`,
     `## Horror ratings (their taste — ★0.5 to ★5)\n${formatRatings(library.horrorRatings)}`,
+    outcomesSection(library.outcomes),
     recentReleasesSection(library.recentReleases),
     `## Never recommend (already seen)\n${list(library.seen.map(film))}`,
     `## Never recommend (already on watchlist)\nExclusion only — not a signal of taste.\n${list(

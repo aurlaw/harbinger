@@ -37,7 +37,7 @@ describe("migration 0001", () => {
          WHERE type IN ('table','index','view')
            AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name != 'd1_migrations'
            AND tbl_name NOT IN ('conversations', 'messages', 'recommendations', 'decisions', 'taste_profile',
-                                'recent_releases', 'job_state') -- 0002+
+                                'recent_releases', 'job_state', 'pick_log') -- 0002+
          ORDER BY type, name`,
       )
       .all<{ type: string; name: string }>();
