@@ -66,10 +66,23 @@ export interface World {
   replies: ClaudeReply[];
   /** When set, every TMDB request returns this status. */
   tmdbStatus?: number;
+  /** /discover/movie requests (the recent-releases refresh); kept out of tmdbCalls. */
+  discoverCalls: URL[];
+  /** Raw /discover/movie results per page (index 0 = page 1); a missing page is empty. */
+  discoverPages: unknown[][];
+  /** When set, that /discover/movie page returns a 500. */
+  discoverFailPage?: number;
 }
 
 export function mockWorld(catalog: CatalogFilm[], replies: ClaudeReply[]): World {
-  const world: World = { claudeCalls: [], tmdbCalls: [], unexpected: [], replies: [...replies] };
+  const world: World = {
+    claudeCalls: [],
+    tmdbCalls: [],
+    unexpected: [],
+    replies: [...replies],
+    discoverCalls: [],
+    discoverPages: [],
+  };
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     const path = `${url.origin}${url.pathname}`;
@@ -79,6 +92,15 @@ export function mockWorld(catalog: CatalogFilm[], replies: ClaudeReply[]): World
       const reply = world.replies.shift();
       if (!reply) throw new Error("no Claude reply queued");
       return reply();
+    }
+
+    if (path === `${TMDB}/discover/movie`) {
+      world.discoverCalls.push(url);
+      const page = Number(url.searchParams.get("page"));
+      if (world.tmdbStatus) return new Response("{}", { status: world.tmdbStatus });
+      if (world.discoverFailPage === page) return new Response("{}", { status: 500 });
+      const results = world.discoverPages[page - 1] ?? [];
+      return jsonResponse({ page, results, total_pages: world.discoverPages.length, total_results: results.length });
     }
 
     if (path.startsWith(TMDB)) {
@@ -175,15 +197,46 @@ export const pick = (title: string, year: number) => ({
 
 export const recs = (...picks: unknown[]) => ({ kind: "recommendations", question: "", chips: [], picks });
 
-/** Each conversation-test file starts from empty tables (W4 + W5 + library). */
+/**
+ * Each conversation-test file starts from empty tables (W4 + W5 + W8 + library).
+ * The recent-releases job is marked fresh so turns don't trigger the stale
+ * fallback; tests of the fallback call setRecentReleasesJob themselves.
+ */
 export async function clearAll(): Promise<void> {
   await env.DB.batch(
     // taste_profile first: it references imports.
-    ["taste_profile", "decisions", "recommendations", "messages", "conversations"].map((t) =>
+    ["taste_profile", "decisions", "recommendations", "messages", "conversations", "recent_releases"].map((t) =>
       env.DB.prepare(`DELETE FROM ${t}`),
     ),
   );
+  await setRecentReleasesJob(new Date().toISOString());
   await clearLibrary();
+}
+
+/** Sets the recent-releases job's last success; null removes the row (never ran). */
+export async function setRecentReleasesJob(lastSuccessAt: string | null): Promise<void> {
+  await env.DB.prepare("DELETE FROM job_state WHERE name = 'recent_releases'").run();
+  if (lastSuccessAt === null) return;
+  await env.DB.prepare("INSERT INTO job_state (name, last_success_at, last_error, updated_at) VALUES ('recent_releases', ?1, NULL, ?1)")
+    .bind(lastSuccessAt)
+    .run();
+}
+
+/** A raw TMDB /discover/movie result. */
+export function discoverFilm(id: number, title: string, extra: Record<string, unknown> = {}) {
+  return {
+    id,
+    title,
+    original_title: title,
+    release_date: "2026-03-13",
+    overview: `Overview of ${title}.`,
+    genre_ids: [27, 53],
+    popularity: 100 - id / 1000,
+    adult: false,
+    video: false,
+    vote_count: 80,
+    ...extra,
+  };
 }
 
 interface SeedFilm {

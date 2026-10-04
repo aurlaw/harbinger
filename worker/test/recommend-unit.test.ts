@@ -94,7 +94,12 @@ describe("titleFrom", () => {
 
 describe("prompt", () => {
   it("formats ratings as half-star values, marks empty lists, and always has a profile section", () => {
-    const library = { horrorRatings: [{ name: "Hereditary", year: 2018, half_stars: 9 }], seen: [], watchlist: [] };
+    const library = {
+      horrorRatings: [{ name: "Hereditary", year: 2018, half_stars: 9 }],
+      seen: [],
+      watchlist: [],
+      recentReleases: [],
+    };
     const system = buildSystemPrompt({ ...library, tasteProfile: null });
     expect(system).toContain("Hereditary (2018) — ★4.5");
     expect(system).toContain("## Never recommend (already seen)\n(none)");

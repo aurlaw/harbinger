@@ -1,6 +1,7 @@
 import { InvalidRequest, withJsonBody } from "../body";
 import { type ClaudeConfig, type ClaudeMessage, ClaudeError, callClaude, claudeConfig } from "../claude/client";
 import { errorResponse, json, noContent } from "../http";
+import { refreshRecentReleasesIfStale } from "../recent/refresh";
 import { buildSystemPrompt, loadLibraryPrompt, replayTurns, userTurnText } from "../recommend/prompt";
 import { pickFilms } from "../recommend/replace";
 import { OUTPUT_SCHEMA, type Reply, parseReply, recommendationFailed } from "../recommend/schema";
@@ -184,6 +185,8 @@ async function converse(
   const startedAt = new Date().toISOString();
   try {
     const { conversation } = state;
+    // Stale fallback: at most one inline refresh; a failure keeps the existing list.
+    await refreshRecentReleasesIfStale(env, new Date());
     const system = buildSystemPrompt(await loadLibraryPrompt(env.DB));
     const history = replayTurns(toTurns(state));
     // Enforced on the user turn, never the system prompt, so the cache holds.

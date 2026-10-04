@@ -1,4 +1,5 @@
 import type { ClaudeMessage } from "../claude/client";
+import { RECENT_RELEASES, type RecentReleaseLine, recentReleasesSection } from "../recent/prompt";
 import { MAX_CHIPS, MAX_PICKS } from "./schema";
 
 // System prompt + message assembly. The system prompt depends only on library
@@ -10,6 +11,8 @@ export interface LibraryPrompt {
   horrorRatings: { name: string; year: number; half_stars: number }[];
   seen: { name: string; year: number }[];
   watchlist: { name: string; year: number }[];
+  /** Recent TMDB horror releases in rank order, minus library films. */
+  recentReleases: RecentReleaseLine[];
   /** The saved taste profile's content, or null when none is saved. */
   tasteProfile: string | null;
 }
@@ -37,17 +40,19 @@ const WATCHLIST = `
 const TASTE_PROFILE = "SELECT content FROM taste_profile WHERE id = 1";
 
 export async function loadLibraryPrompt(db: D1Database): Promise<LibraryPrompt> {
-  const [ratings, seen, watchlist, profile] = await db.batch([
+  const [ratings, seen, watchlist, profile, recent] = await db.batch([
     db.prepare(HORROR_RATINGS),
     db.prepare(SEEN),
     db.prepare(WATCHLIST),
     db.prepare(TASTE_PROFILE),
+    db.prepare(RECENT_RELEASES),
   ]);
   return {
     horrorRatings: (ratings?.results ?? []) as LibraryPrompt["horrorRatings"],
     seen: (seen?.results ?? []) as LibraryPrompt["seen"],
     watchlist: (watchlist?.results ?? []) as LibraryPrompt["watchlist"],
     tasteProfile: (profile?.results[0] as { content: string } | undefined)?.content ?? null,
+    recentReleases: (recent?.results ?? []) as LibraryPrompt["recentReleases"],
   };
 }
 
@@ -70,7 +75,8 @@ Recommendations:
 - "title" and "year": the exact title and original release year as listed on TMDB.
 - "why_short": one line, about 120 characters, for a card.
 - "why_full": 2–4 sentences grounded in specific patterns in their taste profile and ratings. Name the rated films the pick relates to.
-- Prefer less obvious picks over the most famous titles in the genre, unless the request calls for classics.`;
+- Prefer less obvious picks over the most famous titles in the genre, unless the request calls for classics.
+- The "Recent releases" list below may describe films you don't know. It is optional — pick from it only when a film there genuinely fits.`;
 
 const film = (f: { name: string; year: number }) => `${f.name} (${f.year})`;
 const stars = (halfStars: number) => `★${halfStars / 2}`;
@@ -84,7 +90,7 @@ export const NO_TASTE_PROFILE = "(No taste profile yet — rely on the ratings.)
 
 /**
  * Builds the system prompt: instructions → taste profile → horror ratings →
- * never-recommend (seen) → never-recommend (watchlist). The profile section is
+ * recent releases → never-recommend (seen) → never-recommend (watchlist). The profile section is
  * always present so the prompt shape is stable.
  */
 export function buildSystemPrompt(library: LibraryPrompt): string {
@@ -95,6 +101,7 @@ export function buildSystemPrompt(library: LibraryPrompt): string {
       library.tasteProfile === null ? NO_TASTE_PROFILE : `<taste_profile>\n${library.tasteProfile}\n</taste_profile>`
     }`,
     `## Horror ratings (their taste — ★0.5 to ★5)\n${formatRatings(library.horrorRatings)}`,
+    recentReleasesSection(library.recentReleases),
     `## Never recommend (already seen)\n${list(library.seen.map(film))}`,
     `## Never recommend (already on watchlist)\nExclusion only — not a signal of taste.\n${list(
       library.watchlist.map(film),
