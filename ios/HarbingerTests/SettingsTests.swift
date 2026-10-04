@@ -442,9 +442,9 @@ struct TasteProfileEditorTests {
       "The service is busy — try again in a moment."
     ),
     (.network(.timedOut), "Can't reach the server."),
-    (.unauthorized, "API key rejected."),
+    (.unauthorized, "API key rejected — update it in Settings."),
     (serverError(502), "Couldn't draft — try again."),
-    (.decoding("x"), "Couldn't draft — try again."),
+    (.decoding("x"), "Something went wrong."),
   ])
   func draftFailureKeepsTheText(error: APIError, text: String) async throws {
     let model = try editor(try await harness(drafts: [.failure(error)]))
@@ -503,9 +503,9 @@ struct TasteProfileEditorTests {
   }
 
   @Test(arguments: [
-    (APIError.network(.notConnectedToInternet), "Can't reach the server."),
+    (APIError.network(.notConnectedToInternet), "You're offline."),
     (serverError(500), "Couldn't save — try again."),
-    (.invalidResponse, "Couldn't save — try again."),
+    (.invalidResponse, "Something went wrong."),
   ])
   func saveFailureLeavesTheCacheUnchanged(error: APIError, text: String) async throws {
     let harness = try await harness(saves: [.failure(error)])

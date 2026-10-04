@@ -105,8 +105,8 @@ struct DecisionTests {
   @Test(
     "Failure caches nothing and opens nothing",
     arguments: [
-      (APIError.network(.notConnectedToInternet), "Can't reach the server."),
-      (.unauthorized, "API key rejected."),
+      (APIError.network(.notConnectedToInternet), "You're offline."),
+      (.unauthorized, "API key rejected — update it in Settings."),
       (
         .server(status: 422, code: "not_recommended", message: "", retryAfter: nil),
         "Couldn't save that — try again."

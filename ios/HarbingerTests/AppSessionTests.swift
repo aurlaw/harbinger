@@ -15,6 +15,9 @@ struct SessionHarness {
   /// A throwaway suite, so the saved default model never leaks between tests (or from the
   /// simulator's real settings).
   let modelPreference: ModelPreferenceStore
+  /// Follow-up syncs wait here until a test resumes them.
+  let sleeper = ManualSleeper()
+  let background = BackgroundRecorder()
   let opener = OpenRecorder()
   let container: ModelContainer
   let session: AppSession
@@ -41,7 +44,8 @@ struct SessionHarness {
     session = AppSession(
       connection: Connection(baseURL: testBaseURL, apiKey: testAPIKey), client: client,
       syncService: service, sync: sync, open: { [opener] in opener.open($0) },
-      modelPreference: modelPreference)
+      modelPreference: modelPreference, background: background.time,
+      sleep: { [sleeper] in await sleeper.sleep($0) })
   }
 
   /// Conversations, messages, recommendations (as in `CacheReader.counts()`, first three).
@@ -195,7 +199,7 @@ struct AppSessionTests {
 
     let outcome = await harness.session.send(nextTurn)
 
-    let failure = TurnFailure(request: nextTurn, message: "Still working on the last message.")
+    let failure = TurnFailure(request: nextTurn, message: "Still working on your last message.")
     #expect(outcome == .failed(failure))
     #expect(harness.session.failures[nextTurn.target] == failure)
     #expect(harness.session.pending.isEmpty)

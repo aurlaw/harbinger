@@ -451,3 +451,65 @@ final class OpenRecorder: Sendable {
     urls.withLock { $0.append(url) }
   }
 }
+
+/// Stands in for `Task.sleep` in the session: each sleep is recorded and waits until the
+/// test resumes it, so follow-up syncs run exactly when a test says so.
+final class ManualSleeper: Sendable {
+  private struct State {
+    var requested: [Duration] = []
+    var waiting: [CheckedContinuation<Void, Never>] = []
+  }
+
+  private let state = Mutex(State())
+
+  /// Every sleep asked for so far, in order.
+  var requested: [Duration] { state.withLock { $0.requested } }
+
+  func sleep(_ duration: Duration) async {
+    await withCheckedContinuation { continuation in
+      state.withLock {
+        $0.requested.append(duration)
+        $0.waiting.append(continuation)
+      }
+    }
+  }
+
+  /// Ends the oldest sleep still waiting.
+  func resumeNext() {
+    let continuation = state.withLock { $0.waiting.isEmpty ? nil : $0.waiting.removeFirst() }
+    continuation?.resume()
+  }
+}
+
+/// Records background-task begins and ends instead of asking UIKit.
+final class BackgroundRecorder: Sendable {
+  private struct State {
+    var begun: [String] = []
+    var ended: [Int] = []
+    var expirations: [@MainActor @Sendable () -> Void] = []
+  }
+
+  private let state = Mutex(State())
+
+  /// Task names in the order they began; a task's identifier is its index here.
+  var begun: [String] { state.withLock { $0.begun } }
+  var ended: [Int] { state.withLock { $0.ended } }
+
+  @MainActor var time: BackgroundTime {
+    BackgroundTime(
+      begin: { name, onExpiration in
+        self.state.withLock { state in
+          state.begun.append(name)
+          state.expirations.append(onExpiration)
+          return state.begun.count - 1
+        }
+      },
+      end: { identifier in self.state.withLock { $0.ended.append(identifier) } })
+  }
+
+  /// What iOS does when a task runs out of time.
+  @MainActor func expire(_ identifier: Int) {
+    let handler = state.withLock { $0.expirations[identifier] }
+    handler()
+  }
+}

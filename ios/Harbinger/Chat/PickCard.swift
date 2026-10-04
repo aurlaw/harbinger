@@ -21,7 +21,6 @@ struct PickCard: View {
           if let badge {
             Image(systemName: badge.symbol)
               .foregroundStyle(badge.color)
-              .accessibilityLabel(badge.label)
           }
         }
         Text(pick.whyShort)
@@ -34,6 +33,14 @@ struct PickCard: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
     .contentShape(.rect)
+    // Read as one element; the pieces would otherwise be announced one by one.
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      pickAccessibilityLabel(
+        title: pick.title, year: pick.year, whyShort: pick.whyShort, decision: badge)
+    )
+    .accessibilityHint("Shows details")
+    .accessibilityAddTraits(.isButton)
   }
 }
 

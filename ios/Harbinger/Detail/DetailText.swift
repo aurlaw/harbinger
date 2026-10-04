@@ -59,12 +59,7 @@ nonisolated func providerTypeLabel(_ type: String) -> String? {
 
 /// Error text for a failed decision. Basic copy; I6 refines it.
 nonisolated func decisionErrorMessage(_ error: APIError) -> String {
-  switch error {
-  case .network: "Can't reach the server."
-  case .unauthorized: "API key rejected."
-  case .server: "Couldn't save that — try again."
-  case .decoding, .invalidResponse: "Something went wrong."
-  }
+  baseErrorMessage(error) ?? "Couldn't save that — try again."
 }
 
 /// Everything the detail screen shows, derived from a cached pick.

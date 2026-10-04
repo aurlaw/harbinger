@@ -182,6 +182,7 @@ private struct DetailLinks: View {
 private struct DecisionBar: View {
   let model: PickDetailModel
   let current: Decision.Choice?
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   private static let choices: [Decision.Choice] = [.yes, .maybe, .no]
 
@@ -198,7 +199,11 @@ private struct DecisionBar: View {
             .controlSize(.small)
         }
       }
-      HStack(spacing: 8) {
+      // Side by side normally; stacked at accessibility sizes so no label is truncated.
+      let layout =
+        dynamicTypeSize.isAccessibilitySize
+        ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+      layout {
         ForEach(Self.choices, id: \.self) { choice in
           DecisionButton(
             choice: choice, isSelected: choice == current,
@@ -237,6 +242,7 @@ private struct DecisionButton: View {
       .frame(maxWidth: .infinity)
     }
     .controlSize(.large)
+    .accessibilityLabel(decisionAccessibilityLabel(choice))
     .accessibilityAddTraits(isSelected ? .isSelected : [])
 
     if isSelected {

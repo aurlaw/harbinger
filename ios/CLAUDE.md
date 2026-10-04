@@ -6,14 +6,15 @@ Native Swift/SwiftUI iOS app (iPhone only, iOS 26, Swift 6). Talks only to the W
 
 - `Harbinger/HarbingerApp.swift`: app entry; creates the one `ModelContainer` (skipped when hosting unit tests), the live `AppConfiguration`, and the enlarged `URLCache.shared`
 - `Harbinger/RootView.swift`: shows the first-launch sheet until an endpoint + key are saved; owns the `SyncController`; once a connection exists builds the `SyncService` and `AppSession`, injects the session, and syncs on launch / foreground
-- `Harbinger/Session/AppSession.swift`: the connected session (client, `SyncService`, `SyncController`, models and the saved default model, turns, decisions, deletes, renames, and taste-profile draft / save in flight, the external-link opener); `TurnTarget`, `TurnRequest`, `PendingTurn`, `TurnFailure`, `TurnOutcome`; `DecisionTarget`, `DecisionRequest`, `DecisionFailure`, `DecisionOutcome`; `DeleteOutcome`, `RenameOutcome`; `ProfileDraftOutcome`, `ProfileSaveOutcome`
+- `Harbinger/Session/AppSession.swift`: the connected session (client, `SyncService`, `SyncController`, models and the saved default model, turns, decisions, deletes, renames, and taste-profile draft / save in flight, the external-link opener); `TurnTarget`, `TurnRequest`, `PendingTurn`, `TurnFailure`, `TurnOutcome`; `DecisionTarget`, `DecisionRequest`, `DecisionFailure`, `DecisionOutcome`; `DeleteOutcome`, `RenameOutcome`; `ProfileDraftOutcome`, `ProfileSaveOutcome`; `TurnArrival` and the follow-up syncs for cut-off turns
+- `Harbinger/Session/BackgroundTime.swift`: the injectable background-task wrapper (`BackgroundTime.run`, `.live`)
 - `Harbinger/Conversations/ConversationListView.swift`: the root screen (swipe / long-press delete and rename); `Route` and the stack's `navigationDestination`
 - `Harbinger/Conversations/ConversationActions.swift`: delete / rename for a screen (`canDelete`, the error alert text); `RenameAlert.swift`: `RenameTarget`, the shared `renameAlert` and `actionErrorAlert` modifiers
 - `Harbinger/Settings/`: `SettingsView` (the one `Form` behind the gear), `SettingsModel` (default-model picker, sync / rebuild, connection form), `ConnectionEditor` + the `connectionEditor` environment value, `profileStatusText`, `appVersionText`
 - `Harbinger/TasteProfile/`: `TasteProfileEditorView`, `TasteProfileEditorModel` (text, dirty tracking, draft changes, the confirmations)
 - `Harbinger/Chat/`: `ChatView` (transcript, bubbles, chips, typing indicator, error row), `ChatModel` (draft, model choice, send / just pick / chip / retry), `Composer`, `PickCard` + `Poster` (`w185` cards, `w500` detail)
 - `Harbinger/Detail/`: `PickDetailView` (poster, title + metadata, why, overview, where to watch, links, decision bar), `PickDetailModel` (decision bar state), `DetailText.swift` (link builders, runtime / metadata text, provider labels, decision error text, `PickDetailInfo`)
-- `Harbinger/Shared/`: `tmdbImageURL` + `TMDBImageSize`; `DisplayText.swift` (turn / delete / rename error text, bubble text, list dates, `DecisionBadge`, `MessageLimit`, `TitleLimit`, `ProfileLimit`, draft / profile-save error text, `profileIsStale`); `FlowLayout` (wrapping chips)
+- `Harbinger/Shared/`: `tmdbImageURL` + `TMDBImageSize`; `DisplayText.swift` (the shared error base and every context's error text, the sync notice, accessibility labels, `StarterSuggestion`, bubble text, list dates, `DecisionBadge`, `MessageLimit`, `TitleLimit`, `ProfileLimit`, `profileIsStale`); `FlowLayout` (wrapping chips)
 - `Harbinger/Config/Endpoint.swift`: `normalizeEndpoint` (https only; http for `localhost` / `127.0.0.1`), `defaultEndpoint`
 - `Harbinger/Config/CredentialStore.swift`: `CredentialStore` protocol + `KeychainCredentialStore` (service `com.aurlaw.harbinger`, account `api-key`, `AfterFirstUnlockThisDeviceOnly`)
 - `Harbinger/Config/AppConfiguration.swift`: `EndpointStore` (UserDefaults `endpointURL`), `ModelPreferenceStore` (UserDefaults `defaultModel`), `resolveModel`, `Connection`, `isDifferentServer`, `AppConfiguration` (stores + client factory)
@@ -27,8 +28,9 @@ Native Swift/SwiftUI iOS app (iPhone only, iOS 26, Swift 6). Talks only to the W
 - `Harbinger/Store/CacheStore.swift`: schema, store URL, `openOrRebuild`, `inMemory()` for tests
 - `Harbinger/Sync/SyncService.swift`: the model actor: `sync()`, `resetAndSync()`, `ingest(_:)`, `removeConversation(id:)`; `SyncError`, `SyncResult`, `SyncServicing`
 - `Harbinger/Sync/SyncService+Apply.swift`: `CacheBatch` + the shared upsert logic
-- `Harbinger/Sync/SyncController.swift`: main-actor `@Observable`; decides when to sync (`syncIfStale`, `syncNow`, `rebuild`, `start(endpointChanged:)`), exposes `isSyncing` / `lastError`
-- `HarbingerTests/`: Swift Testing. `TestSupport.swift` has `StubURLProtocol`, `InMemoryCredentialStore`, `FakeAPIClient` (scripted `health()` and `sync(since:)` via `SyncRecorder`); `SyncTestSupport.swift` has DTO builders, `CacheReader`, `FakeSyncService`; `RootViewTests.swift` hosts the real root view in the test host's window; `AppSessionTests.swift` has `SessionHarness` (fake Worker + in-memory cache + real `SyncService`) and `eventually`; `ScreenSmokeTests.swift` renders each screen so its `@Query` predicates run; `DecisionScript`, `ManagementScript`, `ProfileScript`, and `OpenRecorder` (in `TestSupport.swift`) script decisions, rename / delete, taste-profile draft / save, and capture opened links; `SessionHarness` gives each session a throwaway `ModelPreferenceStore` suite; `SettingsTests.swift` covers I5; `ConversationManagementTests.swift` covers I4b (its client tests extend `APIClientTests`, so they share that suite's `.serialized`); `Fixtures.swift` has real-shaped response bodies
+- `Harbinger/Sync/SyncService+Arrival.swift`: `TurnBaseline`, `turnBaseline(for:)`, `arrivedConversation(for:since:)` — read-only checks for whether a cut-off turn's reply has reached the cache
+- `Harbinger/Sync/SyncController.swift`: main-actor `@Observable`; decides when to sync (`syncIfStale`, `syncNow`, `rebuild`, `start(endpointChanged:)`), exposes `isSyncing` / `lastError` / `lastFailure`
+- `HarbingerTests/`: Swift Testing. `TestSupport.swift` has `StubURLProtocol`, `InMemoryCredentialStore`, `FakeAPIClient` (scripted `health()` and `sync(since:)` via `SyncRecorder`); `SyncTestSupport.swift` has DTO builders, `CacheReader`, `FakeSyncService`; `RootViewTests.swift` hosts the real root view in the test host's window; `AppSessionTests.swift` has `SessionHarness` (fake Worker + in-memory cache + real `SyncService`) and `eventually`; `ScreenSmokeTests.swift` renders each screen so its `@Query` predicates run; `DecisionScript`, `ManagementScript`, `ProfileScript`, and `OpenRecorder` (in `TestSupport.swift`) script decisions, rename / delete, taste-profile draft / save, and capture opened links; `SessionHarness` gives each session a throwaway `ModelPreferenceStore` suite; `SettingsTests.swift` covers I5; `PolishTests.swift` covers I6; `SessionHarness` also injects a `ManualSleeper` (follow-up syncs wait until a test calls `resumeNext()`) and a `BackgroundRecorder`; `ConversationManagementTests.swift` covers I4b (its client tests extend `APIClientTests`, so they share that suite's `.serialized`); `Fixtures.swift` has real-shaped response bodies
 
 ## Commands
 
@@ -96,23 +98,64 @@ The SwiftData store is a **disposable read cache**. The Worker is the source of 
 - **New conversations** switch to the returned id in place (`ChatModel.conversationID`; the transcript is re-created with `.id`), with no extra push
 - **Composer rules:** text is trimmed; 1–2,000 characters counted as UTF-16 (`MessageLimit`, matching the Worker's JS `length`); over the limit disables Send and Just pick and shows a count. Just pick works with or without text on an existing conversation, but **a new conversation needs text**: `POST /conversations` requires it even with `just_pick`. Chips are live only on the latest message while nothing is sending. A failed send restores its text to the composer
 - **Posters:** TMDB returns only a path; build URLs with `tmdbImageURL(path:size:)` (single slash, `nil` for a missing path). Sizes: `w185` cards, `w500` detail (I4), `w92` provider logos (I4). `HarbingerApp` sets `URLCache.shared` to 50 MB memory / 300 MB disk so seen posters load offline; `AsyncImage` uses it. No custom image loader
-- **Turn error text** (`turnErrorMessage`; I6 refines):
+- **Starter suggestions** (`StarterSuggestion.all`): a fixed set shown above the composer on a new conversation until its first turn is sent (`ChatModel.showsSuggestions`), in the question chips' capsule style. "Something slow and unsettling", "A hidden gem from the 70s or 80s", "Under 90 minutes, tonight", and "Folk horror" **fill** the composer (editable, not sent). **"Surprise me"** sends a just-pick turn at once — with the text "Surprise me", because `POST /conversations` rejects an empty `text` even with `just_pick`
+- **Empty list:** a `ContentUnavailableView` ("No conversations yet", `film.stack`, "Tell Harbinger what you're in the mood for.") with a Start a Conversation button to `Route.newConversation`
+- **Sync notice:** while `SyncController.lastFailure` is set the list shows a small inline notice at the top (`syncNoticeMessage`): key rejected → the shared-base text; offline → "You're offline — pull to retry."; anything else → "Couldn't sync — pull to retry.". It clears on the next successful sync. Sync failures never raise an alert
+
+## Error text
+
+All in `Shared/DisplayText.swift` (decisions: `Detail/DetailText.swift`). Every helper starts from one shared base, then adds its own `.server` cases.
+
+**Shared base** (`baseErrorMessage`; `nil` for `.server`) — reads the same in every context:
 
 | Error | Text |
 |---|---|
-| `409 conversation_busy` | "Still working on the last message." |
-| `503 claude_unavailable` / `tmdb_rate_limited` | "The service is busy — try again in a moment." |
-| any `502` (`claude_error`, `tmdb_unavailable`, `recommendation_failed`) | "Couldn't get recommendations — try again." |
-| `.network` | "Can't reach the server." |
-| `.unauthorized` | "API key rejected." |
-| anything else | "Something went wrong." |
+| `.unauthorized` | "API key rejected — update it in Settings." |
+| `.network(.notConnectedToInternet)` | "You're offline." |
+| `.network` (other) | "Can't reach the server." |
+| `.decoding` / `.invalidResponse` | "Something went wrong." |
+
+**Chat turns** (`turnErrorMessage`):
+
+| Error | Text |
+|---|---|
+| `.network(.timedOut)` / `.network(.networkConnectionLost)` | "This is taking longer than usual — your reply may still arrive." (checked before the base) |
+| `409 conversation_busy` | "Still working on your last message." |
+| any `503` with `retryAfter` | "The service is busy — try again in *N* seconds." ("1 second") |
+| any `503` without | "The service is busy — try again in a moment." |
+| `502 recommendation_failed` | "Couldn't find good picks for that — try rephrasing." |
+| `502 tmdb_unavailable` | "Movie data is unavailable right now — try again shortly." |
+| other `502` (`claude_error`, …) | "Couldn't get recommendations — try again." |
+| `404` | "This conversation no longer exists." |
+| any other `.server` | "Something went wrong." |
+
+**Other contexts** (base first, then): delete → "Couldn't delete — try again." (a `404` is success); rename → `404` "This conversation no longer exists.", else "Couldn't rename — try again."; decision → "Couldn't save that — try again."; draft → `no_ratings` "Import your Letterboxd ratings first.", `claude_unavailable` "The service is busy — try again in a moment.", else "Couldn't draft — try again."; profile save → "Couldn't save — try again."
+
+## Slow or cut-off turns
+
+A turn can take a minute or more and iOS may cut the request off, but the Worker usually still commits it and `/sync` delivers it (W6).
+
+- **"May still arrive":** a turn that fails with `.network(.timedOut)` or `.network(.networkConnectionLost)` gets `TurnFailure.replyMayArrive` and the "may still arrive" text. Retry stays available and the text is restored to the composer as for any failure
+- **Follow-up syncs:** for those failures, and for `409 conversation_busy` (an earlier turn is still landing), the session syncs again **20 s and 60 s after the failure** (`AppSession.followUpDelays`; `syncNow()`, so the 30 s throttle doesn't apply). The waits go through the injected `sleep` closure. No other error schedules anything. A new send for the target cancels them
+- **Arrival:** before every turn the session records a `TurnBaseline` (the conversation's message count, or — for a new conversation — the existing conversation ids). After each follow-up sync, `arrivedConversation(for:since:)` reports the conversation the reply landed in: more messages than the baseline, or a conversation that wasn't there before and whose first message is the turn's text. On arrival the failure is removed and `AppSession.arrivals[target]` is set (view state, cleared by the next send)
+- **The chat screen** (`ChatModel.arrivalChanged()`, only for a turn that screen sent): clears the composer if it still holds the restored text and `clearsDraft` is set, and a new conversation switches to the arrived id. `clearsDraft` is true when the arrived reply answers that request; after a plain `409` it is false (the busy notice goes, the unsent text stays)
+- **Retry while a reply may still be arriving** sends a new turn. If the server answers `409`, the turn still running is that one: the busy failure keeps `replyMayArrive`, so its arrival clears the composer
+- **Background time** (`BackgroundTime`): every session-owned request — turns, decisions, renames, deletes, taste-profile drafts and saves — runs inside `background.run(name) { … }`, which wraps `beginBackgroundTask` / `endBackgroundTask` and ends the task exactly once: when the work finishes (success or failure) or in the expiration handler, whichever is first. `RootView` uses `.live`; tests inject a `BackgroundRecorder`. New session-owned requests must use it too
+- **Timeouts:** `RequestTimeout.claude` stays 180 s; the follow-up syncs cover the rest. Don't raise it
+
+## Accessibility
+
+- **Pick card:** one element (`pickAccessibilityLabel`): "<Title>, <year>. <whyShort>. Decision: <Yes/Maybe/No>", missing parts omitted; hint "Shows details"
+- **Decision buttons:** "Yes — add to watchlist", "Maybe", "No — never recommend" (`decisionAccessibilityLabel`), with `.isSelected` on the current one. At accessibility text sizes the three buttons stack vertically instead of truncating
+- **Typing indicator:** "Harbinger is thinking". Chips and suggestions are plain buttons labelled by their text
+- System colors only, so notices and empty states follow light / dark mode
 
 ## Conversation management (delete + rename)
 
 - **Server first, always.** The cache only changes from a server response: no optimistic removal, no local-only titles. Both requests run in session-owned tasks (like turns and decisions), so they finish and update the cache even if the screen that started them is released
 - **Delete** (`AppSession.deleteConversation(id:)`): **refused while a turn is in flight for that conversation** (`.blocked`, no request); a second delete while one is in flight is `.rejected`. Success **or `404`** (already gone) → `removeConversation(id:)` → `.deleted`. Any other failure leaves the cache unchanged
 - **Rename** (`AppSession.renameConversation(id:title:)`): trimmed, then **1–100 characters counted as Unicode scalars** (`TitleLimit`, `unicodeScalars.count`) to match the Worker's code-point count; `String.count` counts grapheme clusters and disagrees on emoji. Invalid → `.invalid`, no request. One rename in flight per conversation. Success → `ingest(conversation)`. `404` → the conversation is gone: removed from the cache and reported as "This conversation no longer exists.". Allowed while a turn is in flight (the server's turn save doesn't touch the title)
-- **Error text** (`deleteErrorMessage` / `renameErrorMessage`): `.network` → "Can't reach the server."; `.unauthorized` → "API key rejected."; `.server` → "Couldn't delete — try again." / "Couldn't rename — try again." (rename `404` → "This conversation no longer exists."; delete `404` is success); `.decoding` / `.invalidResponse` → "Something went wrong."
+- **Error text:** `deleteErrorMessage` / `renameErrorMessage` — see **Error text**
 - **List:** trailing swipe (Delete) and a long-press menu (Rename, Delete). Delete always asks first (`confirmationDialog`). The swipe button is tinted red rather than `role: .destructive`, so the row stays until the server confirms. While a turn is in flight the swipe isn't offered and the menu's Delete is disabled (`ConversationActions.canDelete`); while a delete is in flight the row is dimmed with a spinner. Failures show an alert. No Edit mode, multi-select, undo, or bulk delete
 - **Rename alert** (`renameAlert`): shared by the list and the chat title; text field prefilled with the current title (empty for "Untitled"); Save disabled unless `TitleLimit.isValid`
 - **Chat:** the title is a `.principal` toolbar button (existing conversations only) that opens the rename alert. If the open conversation leaves the cache (a sync tombstone, or a rename `404`) the screen pops back: the transcript reports `conversationIsCached(_:)`, and `ChatModel.shouldDismiss` is set only once the conversation had been seen (an empty query while loading, or a new unsaved conversation, never pops). A pending error alert is shown before the pop
@@ -132,7 +175,7 @@ Secondary, rarely used screens built from standard controls (`Form`, `Picker`, `
 - **Profile length is counted in UTF-16** (`ProfileLimit`: 1–4,000 after trimming, `utf16.count`, an emoji is 2) because the Worker counts JS `string.length` — the same rule as `MessageLimit`, and unlike titles, which the Worker counts in code points (`TitleLimit`, Unicode scalars). Match each server rule; don't unify them
 - **Save** (`AppSession.saveTasteProfile`): trimmed text → `PUT /taste-profile` → `ingest(profile)`; the editor then shows the server's copy and clears the changes. Enabled when dirty or a draft is pending, and the length is valid; over the limit shows a count
 - **Leaving with unsaved edits:** the system back button (and back swipe) is hidden while dirty and replaced by one that asks: Discard Changes / Keep Editing
-- **Error text:** draft (`draftErrorMessage`) — `422 no_ratings` → "Import your Letterboxd ratings first."; `claude_unavailable` → "The service is busy — try again in a moment."; `.network` → "Can't reach the server."; `.unauthorized` → "API key rejected."; else "Couldn't draft — try again.". Save (`profileSaveErrorMessage`) — `.network` → "Can't reach the server."; `.unauthorized` → "API key rejected."; else "Couldn't save — try again."
+- **Error text:** `draftErrorMessage` / `profileSaveErrorMessage` — see **Error text**
 
 ## Pick detail and decisions
 
@@ -140,7 +183,7 @@ Secondary, rarely used screens built from standard controls (`Form`, `Picker`, `
 - **Where to watch:** providers in the Worker's order (stream → free → ads → rent → buy) in a `FlowLayout`: logo (`w92`), name, type label (`Stream`, `Free`, `With ads`, `Rent`, `Buy`; none for unknown types). Any provider and "More options" open `providersLink` when present. With no providers: "Not available to stream in the US right now." (the link still shows if present). Always captioned "Streaming availability from JustWatch." (the TMDB and JustWatch credits are in Settings → About)
 - **Decision flow:** `AppSession.setDecision(_:for:current:)` sends `PUT /decisions/{tmdb_id}` with the **recommendation's own `conversationID`** (the server only accepts decisions on films recommended in that conversation), ingests the returned `Decision`, and **after a Yes is saved** opens `https://letterboxd.com/tmdb/{id}`. The request runs in a session-owned task, like chat turns, so leaving the screen doesn't cancel it. A success haptic fires on save
 - **Decision rules:** re-choosing the current decision makes no request; re-choosing Yes re-opens Letterboxd. Changing a decision is a normal request (the server upserts). One decision in flight per film: the bar is disabled with a spinner on the tapped button, and a second tap is `.rejected`. On failure nothing is cached and Letterboxd is not opened; an inline error shows above the bar with Retry, which resends the identical `DecisionRequest`. There is no "undecided" (v1 can't clear a decision), and no optimistic `CachedDecision` writes
-- **Decision error text** (`decisionErrorMessage`): `.network` → "Can't reach the server."; `.unauthorized` → "API key rejected."; any `.server` → "Couldn't save that — try again."; `.decoding` / `.invalidResponse` → "Something went wrong."
+- **Decision error text:** `decisionErrorMessage` — see **Error text**
 - **Link builders** are pure `nonisolated` helpers built with `URLComponents`: `letterboxdURL(tmdbID:)`, `trailerURL(key:)` (`https://www.youtube.com/watch?v=…`, key query-encoded; `nil` without a key), `tmdbImageURL(path:size:)`. Links open the YouTube / Letterboxd apps through universal links when installed, otherwise Safari. No embedded video (no `WKWebView` or AVKit)
 - **External opens are injected:** views use the `openURL` environment action (`Link`, provider buttons). The session takes an `open: (URL) -> Void` closure, which `RootView` fills with `openURL`; tests pass an `OpenRecorder`
 

@@ -79,8 +79,26 @@ private struct ConversationList: View {
     .actionErrorAlert(actions)
     .overlay {
       if conversations.isEmpty {
-        Text("No conversations yet")
+        ContentUnavailableView {
+          Label("No conversations yet", systemImage: "film.stack")
+        } description: {
+          Text("Tell Harbinger what you're in the mood for.")
+        } actions: {
+          NavigationLink("Start a Conversation", value: Route.newConversation)
+            .buttonStyle(.borderedProminent)
+        }
+      }
+    }
+    // Sync failures never block: a small notice until the next sync succeeds.
+    .safeAreaInset(edge: .top, spacing: 0) {
+      if let notice = syncNoticeMessage(session.sync.lastFailure) {
+        Label(notice, systemImage: "exclamationmark.icloud")
+          .font(.footnote)
           .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal)
+          .padding(.vertical, 6)
+          .background(.bar)
       }
     }
     .refreshable {

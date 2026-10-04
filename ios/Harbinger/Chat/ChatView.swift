@@ -23,7 +23,12 @@ struct ChatView: View {
       // A new conversation's query restarts once it has an id.
       .id(model.conversationID)
       .safeAreaInset(edge: .bottom) {
-        Composer(model: model)
+        VStack(spacing: 0) {
+          if model.showsSuggestions {
+            StarterSuggestions(onChoose: model.choose)
+          }
+          Composer(model: model)
+        }
       }
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -34,11 +39,33 @@ struct ChatView: View {
         }
       }
       .actionErrorAlert(actions)
+      .onChange(of: model.arrival, initial: true) {
+        model.arrivalChanged()
+      }
       .onChange(of: shouldPop) {
         if shouldPop {
           dismiss()
         }
       }
+  }
+}
+
+/// Fixed suggestions for a new conversation, in the question chips' capsule style.
+private struct StarterSuggestions: View {
+  let onChoose: (StarterSuggestion) -> Void
+
+  var body: some View {
+    FlowLayout(spacing: 8) {
+      ForEach(StarterSuggestion.all, id: \.self) { suggestion in
+        Button(suggestion.title) { onChoose(suggestion) }
+          .buttonStyle(.bordered)
+          .buttonBorderShape(.capsule)
+          .controlSize(.small)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal)
+    .padding(.vertical, 8)
   }
 }
 
@@ -264,7 +291,8 @@ private struct TypingIndicator: View {
         }
       }
       .foregroundStyle(.secondary)
-      .accessibilityLabel("Waiting for a reply")
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Harbinger is thinking")
     }
   }
 }

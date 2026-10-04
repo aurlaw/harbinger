@@ -85,10 +85,18 @@ struct DisplayTextTests {
     arguments: [
       (
         APIError.server(status: 409, code: "conversation_busy", message: "", retryAfter: nil),
-        "Still working on the last message."
+        "Still working on your last message."
       ),
       (
-        .server(status: 503, code: "claude_unavailable", message: "", retryAfter: 5),
+        .server(status: 503, code: "claude_unavailable", message: "", retryAfter: 7),
+        "The service is busy — try again in 7 seconds."
+      ),
+      (
+        .server(status: 503, code: "tmdb_rate_limited", message: "", retryAfter: 1),
+        "The service is busy — try again in 1 second."
+      ),
+      (
+        .server(status: 503, code: "claude_unavailable", message: "", retryAfter: nil),
         "The service is busy — try again in a moment."
       ),
       (
@@ -96,20 +104,36 @@ struct DisplayTextTests {
         "The service is busy — try again in a moment."
       ),
       (
+        .server(status: 502, code: "recommendation_failed", message: "", retryAfter: nil),
+        "Couldn't find good picks for that — try rephrasing."
+      ),
+      (
+        .server(status: 502, code: "tmdb_unavailable", message: "", retryAfter: nil),
+        "Movie data is unavailable right now — try again shortly."
+      ),
+      (
         .server(status: 502, code: "claude_error", message: "", retryAfter: nil),
         "Couldn't get recommendations — try again."
       ),
       (
-        .server(status: 502, code: "tmdb_unavailable", message: "", retryAfter: nil),
+        .server(status: 502, code: "something_else", message: "", retryAfter: nil),
         "Couldn't get recommendations — try again."
       ),
       (
-        .server(status: 502, code: "recommendation_failed", message: "", retryAfter: nil),
-        "Couldn't get recommendations — try again."
+        .server(status: 404, code: "not_found", message: "", retryAfter: nil),
+        "This conversation no longer exists."
       ),
-      (.network(.notConnectedToInternet), "Can't reach the server."),
-      (.network(.timedOut), "Can't reach the server."),
-      (.unauthorized, "API key rejected."),
+      (.network(.notConnectedToInternet), "You're offline."),
+      (.network(.cannotConnectToHost), "Can't reach the server."),
+      (
+        .network(.timedOut),
+        "This is taking longer than usual — your reply may still arrive."
+      ),
+      (
+        .network(.networkConnectionLost),
+        "This is taking longer than usual — your reply may still arrive."
+      ),
+      (.unauthorized, "API key rejected — update it in Settings."),
       (
         .server(status: 400, code: "invalid_request", message: "", retryAfter: nil),
         "Something went wrong."

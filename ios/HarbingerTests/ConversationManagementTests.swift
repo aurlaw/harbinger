@@ -352,9 +352,9 @@ struct ConversationManagementTests {
   }
 
   @Test(arguments: [
-    (APIError.network(.notConnectedToInternet), "Can't reach the server."),
+    (APIError.network(.notConnectedToInternet), "You're offline."),
     (serverError(500), "Couldn't delete — try again."),
-    (.unauthorized, "API key rejected."),
+    (.unauthorized, "API key rejected — update it in Settings."),
     (.invalidResponse, "Something went wrong."),
   ])
   func deleteFailureLeavesTheCacheUnchanged(error: APIError, text: String) async throws {
@@ -421,7 +421,7 @@ struct ConversationManagementTests {
   @Test(arguments: [
     (APIError.network(.timedOut), "Can't reach the server."),
     (serverError(400), "Couldn't rename — try again."),
-    (.unauthorized, "API key rejected."),
+    (.unauthorized, "API key rejected — update it in Settings."),
     (.decoding("x"), "Something went wrong."),
   ])
   func renameFailureLeavesTheCacheUnchanged(error: APIError, text: String) async throws {

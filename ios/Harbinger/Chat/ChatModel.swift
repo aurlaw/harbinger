@@ -18,6 +18,9 @@ final class ChatModel {
   private(set) var shouldDismiss = false
   /// The conversation has been seen in the cache; before that an empty query is just loading.
   private var hasLoaded = false
+  /// The last turn this screen sent. An arrival is acted on only for that turn: a screen
+  /// opened later didn't send it, and has no restored text of its own to clear.
+  private var lastRequest: TurnRequest?
 
   init(session: AppSession, conversationID: String?) {
     self.session = session
@@ -32,6 +35,11 @@ final class ChatModel {
   var isSending: Bool { session.isSending(target) }
   var pending: PendingTurn? { session.pending[target] }
   var failure: TurnFailure? { session.failures[target] }
+  /// A failed turn of this target whose reply has since arrived by sync.
+  var arrival: TurnArrival? { session.arrivals[target] }
+
+  /// Starter suggestions show on a new conversation until its first message is sent.
+  var showsSuggestions: Bool { isNew && pending == nil }
 
   /// The model a new conversation will use: the choice made on this screen, else the saved
   /// default (if still allowed), else the server default.
@@ -86,6 +94,30 @@ final class ChatModel {
     begin(failure.request, restoresDraft: false)
   }
 
+  /// A fill suggestion goes into the composer to be edited; "Surprise me" sends a just-pick
+  /// turn at once. The Worker requires text to create a conversation, so the suggestion's
+  /// own title is sent as that text.
+  func choose(_ suggestion: StarterSuggestion) {
+    guard showsSuggestions else { return }
+    if suggestion.sendsImmediately {
+      start(text: suggestion.title, justPick: true, clearsDraft: false)
+    } else {
+      draft = suggestion.title
+    }
+  }
+
+  /// The reply to a turn this screen sent has arrived by sync after its request was cut
+  /// off: the restored text was sent after all, and a new conversation now has an id.
+  func arrivalChanged() {
+    guard let arrival, arrival.request == lastRequest else { return }
+    if arrival.clearsDraft, draft == arrival.request.text {
+      draft = ""
+    }
+    if conversationID == nil {
+      conversationID = arrival.conversationID
+    }
+  }
+
   private func start(text: String?, justPick: Bool, clearsDraft: Bool) {
     let request = TurnRequest(
       target: target, text: text, justPick: justPick, model: isNew ? model : nil)
@@ -99,6 +131,7 @@ final class ChatModel {
   /// session; there is just no screen left to update.
   private func begin(_ request: TurnRequest, restoresDraft: Bool) {
     let session = session
+    lastRequest = request
     sendTask = Task { [weak self] in
       let outcome = await session.send(request)
       self?.finish(outcome, request: request, restoresDraft: restoresDraft)

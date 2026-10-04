@@ -15,6 +15,8 @@ final class SyncController {
   private(set) var isSyncing = false
   /// User-readable; cleared by the next successful sync.
   private(set) var lastError: String?
+  /// The failure behind `lastError`, for the list's inline notice.
+  private(set) var lastFailure: SyncError?
 
   private var service: (any SyncServicing)?
   private let now: () -> Date
@@ -31,6 +33,7 @@ final class SyncController {
     self.service = service
     lastSuccess = nil
     lastError = nil
+    lastFailure = nil
   }
 
   /// Launch and foreground: syncs unless one succeeded within `minimumInterval`.
@@ -73,8 +76,10 @@ final class SyncController {
       _ = rebuild ? try await service.resetAndSync() : try await service.sync()
       lastSuccess = now()
       lastError = nil
+      lastFailure = nil
     } catch {
       lastError = Self.message(for: error)
+      lastFailure = error
     }
   }
 

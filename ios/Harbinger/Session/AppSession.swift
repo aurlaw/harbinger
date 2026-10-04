@@ -26,6 +26,18 @@ nonisolated struct PendingTurn: Equatable, Sendable {
 nonisolated struct TurnFailure: Equatable, Sendable {
   let request: TurnRequest
   let message: String
+  /// The request was cut off after it was sent (or retried into a `409` while it was still
+  /// running), so this turn's reply may still arrive by sync.
+  var replyMayArrive = false
+}
+
+/// A failed turn's reply turned up in the cache after a follow-up sync. View state only.
+nonisolated struct TurnArrival: Equatable, Sendable {
+  let request: TurnRequest
+  let conversationID: String
+  /// The arrived reply answers `request` itself, so the text restored to the composer has
+  /// been sent. `false` when it was an earlier turn that landed (`409`).
+  let clearsDraft: Bool
 }
 
 nonisolated enum TurnOutcome: Equatable, Sendable {
@@ -134,6 +146,13 @@ final class AppSession {
   private(set) var pending: [TurnTarget: PendingTurn] = [:]
   /// The last failed turn per target, kept for Retry until the next send.
   private(set) var failures: [TurnTarget: TurnFailure] = [:]
+  /// Failed turns whose reply has since arrived by sync, until the next send.
+  private(set) var arrivals: [TurnTarget: TurnArrival] = [:]
+  /// Follow-up syncs for turns that may still land, by target.
+  private var followUps: [TurnTarget: Task<Void, Never>] = [:]
+
+  /// When to sync again after a turn that may still land: 20 s and 60 s after it failed.
+  static let followUpDelays: [Duration] = [.seconds(20), .seconds(40)]
 
   /// Decisions in flight, by TMDB id.
   private(set) var pendingDecisions: [Int: DecisionRequest] = [:]
@@ -149,6 +168,8 @@ final class AppSession {
   private(set) var isSavingProfile = false
 
   private let modelPreference: ModelPreferenceStore
+  private let background: BackgroundTime
+  private let sleep: @Sendable (Duration) async -> Void
   private let now: () -> Date
   /// Opens external links (Letterboxd after a Yes). `RootView` passes the `openURL` action.
   private let open: (URL) -> Void
@@ -158,6 +179,8 @@ final class AppSession {
     connection: Connection, client: any APIClient, syncService: SyncService,
     sync: SyncController, open: @escaping (URL) -> Void,
     modelPreference: ModelPreferenceStore = ModelPreferenceStore(),
+    background: BackgroundTime = .live,
+    sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
     now: @escaping () -> Date = Date.init
   ) {
     self.connection = connection
@@ -167,6 +190,8 @@ final class AppSession {
     self.open = open
     self.modelPreference = modelPreference
     self.savedModel = modelPreference.model()
+    self.background = background
+    self.sleep = sleep
     self.now = now
   }
 
@@ -205,19 +230,53 @@ final class AppSession {
   func send(_ request: TurnRequest) async -> TurnOutcome {
     let target = request.target
     guard pending[target] == nil else { return .rejected }
+    // Retrying a turn that may still land: if the server answers "busy", the turn still
+    // running there is this one.
+    let isRetryOfCutOffTurn = failures[target].map { $0.replyMayArrive && $0.request == request }
     failures[target] = nil
+    arrivals[target] = nil
+    followUps.removeValue(forKey: target)?.cancel()
     pending[target] = PendingTurn(request: request, startedAt: now())
 
     // Unstructured, so cancelling or releasing the caller doesn't cancel the request.
     let task = Task {
-      let outcome = await self.perform(request)
-      self.pending[target] = nil
-      if case .failed(let failure) = outcome {
-        self.failures[target] = failure
+      let result = await self.background.run("Chat turn") {
+        await self.perform(request, isRetryOfCutOffTurn: isRetryOfCutOffTurn ?? false)
       }
-      return outcome
+      self.pending[target] = nil
+      if case .failed(let failure) = result.outcome {
+        self.failures[target] = failure
+        if let baseline = result.followUpBaseline {
+          self.scheduleFollowUps(for: failure, since: baseline)
+        }
+      }
+      return result.outcome
     }
     return await task.value
+  }
+
+  /// A cut-off turn usually still commits on the server, and `/sync` delivers it: sync again
+  /// 20 s and 60 s later (manual syncs, so the 30 s throttle doesn't apply). When the reply
+  /// shows up in the cache the failure is replaced by an arrival.
+  private func scheduleFollowUps(for failure: TurnFailure, since baseline: TurnBaseline) {
+    let target = failure.request.target
+    followUps[target] = Task {
+      for delay in Self.followUpDelays {
+        await self.sleep(delay)
+        if Task.isCancelled { return }
+        await self.sync.syncNow()
+        // A newer send for the target owns its state now.
+        guard !Task.isCancelled, self.failures[target] == failure else { return }
+        let arrived = try? await self.syncService.arrivedConversation(
+          for: failure.request, since: baseline)
+        guard let arrived, self.failures[target] == failure else { continue }
+        self.failures[target] = nil
+        self.arrivals[target] = TurnArrival(
+          request: failure.request, conversationID: arrived,
+          clearsDraft: failure.replyMayArrive)
+        return
+      }
+    }
   }
 
   /// Resends the failed turn for `target`, unchanged.
@@ -243,7 +302,9 @@ final class AppSession {
     deleting.insert(id)
 
     let task = Task {
-      let outcome = await self.performDelete(id)
+      let outcome = await self.background.run("Delete conversation") {
+        await self.performDelete(id)
+      }
       self.deleting.remove(id)
       return outcome
     }
@@ -260,7 +321,9 @@ final class AppSession {
     renaming.insert(id)
 
     let task = Task {
-      let outcome = await self.performRename(id, title: title)
+      let outcome = await self.background.run("Rename conversation") {
+        await self.performRename(id, title: title)
+      }
       self.renaming.remove(id)
       return outcome
     }
@@ -321,7 +384,9 @@ final class AppSession {
     let model = preferredModel
 
     let task = Task {
-      let outcome = await self.performDraft(model: model)
+      let outcome = await self.background.run("Draft taste profile") {
+        await self.performDraft(model: model)
+      }
       self.isDraftingProfile = false
       return outcome
     }
@@ -345,7 +410,9 @@ final class AppSession {
     isSavingProfile = true
 
     let task = Task {
-      let outcome = await self.performProfileSave(content)
+      let outcome = await self.background.run("Save taste profile") {
+        await self.performProfileSave(content)
+      }
       self.isSavingProfile = false
       return outcome
     }
@@ -403,7 +470,9 @@ final class AppSession {
     pendingDecisions[tmdbID] = request
 
     let task = Task {
-      let outcome = await self.perform(request)
+      let outcome = await self.background.run("Save decision") {
+        await self.perform(request)
+      }
       self.pendingDecisions[tmdbID] = nil
       switch outcome {
       case .failed(let failure):
@@ -443,7 +512,17 @@ final class AppSession {
 
   // MARK: - Turns
 
-  private func perform(_ request: TurnRequest) async -> TurnOutcome {
+  /// A turn's outcome, plus — when its reply may still land — what the cache held before
+  /// it was sent.
+  private struct TurnResult {
+    let outcome: TurnOutcome
+    var followUpBaseline: TurnBaseline?
+  }
+
+  private func perform(_ request: TurnRequest, isRetryOfCutOffTurn: Bool) async -> TurnResult {
+    // Taken before the request, so a reply that lands at any point afterwards is noticed.
+    let baseline = try? await syncService.turnBaseline(for: request.target)
+
     let response: ConversationResponse
     do {
       switch request.target {
@@ -455,7 +534,14 @@ final class AppSession {
           conversationID: id, text: request.text, justPick: request.justPick)
       }
     } catch {
-      return .failed(TurnFailure(request: request, message: turnErrorMessage(error)))
+      let cutOff = replyMayStillArrive(error)
+      let busy = isConversationBusy(error)
+      let failure = TurnFailure(
+        request: request, message: turnErrorMessage(error),
+        replyMayArrive: cutOff || (busy && isRetryOfCutOffTurn))
+      // Busy means an earlier turn is still landing: follow up for that too.
+      return TurnResult(
+        outcome: .failed(failure), followUpBaseline: cutOff || busy ? baseline : nil)
     }
 
     // The server has committed the turn. If caching it fails, a sync will deliver it.
@@ -464,6 +550,6 @@ final class AppSession {
     } catch {
       await sync.syncNow()
     }
-    return .sent(conversationID: response.conversation.id)
+    return TurnResult(outcome: .sent(conversationID: response.conversation.id))
   }
 }

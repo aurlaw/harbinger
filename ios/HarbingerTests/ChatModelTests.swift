@@ -188,7 +188,7 @@ struct ChatModelTests {
 
     #expect(chat.pending == nil)
     #expect(chat.draft == "Less bleak")
-    #expect(chat.failure?.message == "Can't reach the server.")
+    #expect(chat.failure?.message == "You're offline.")
   }
 
   @Test func retryFromTheChatResendsTheFailedTurn() async throws {

@@ -74,7 +74,7 @@ struct SettingsView: View {
             .textContentType(.URL)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-          SecureField("Saved — enter to replace", text: $model.apiKey)
+          SecureField("API Key Saved — enter to replace", text: $model.apiKey)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
           if let message = model.connectionError {
