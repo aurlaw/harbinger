@@ -64,16 +64,16 @@ private struct ModelControl: View {
       Menu {
         Picker("Model", selection: $model.selectedModel) {
           ForEach(allowed, id: \.self) { name in
-            Text(name).tag(Optional(name))
+            Text(modelDisplayName(name)).tag(Optional(name))
           }
         }
       } label: {
         // The choice made here, else the saved default, else the server default.
-        ModelLabel(name: model.model ?? "Server default")
+        ModelLabel(name: model.model.map(modelDisplayName) ?? "Server default")
       }
       .disabled(model.isSending)
       .accessibilityLabel("Model")
-      .accessibilityValue(model.model ?? "Server default")
+      .accessibilityValue(model.model.map(modelDisplayName) ?? "Server default")
     } else {
       // Models didn't load: nothing to choose from, and the server picks.
       ModelLabel(name: "Server default")
@@ -91,12 +91,12 @@ private struct ConversationModelLabel: View {
   }
 
   var body: some View {
-    ModelLabel(name: conversations.first?.model ?? "")
+    ModelLabel(name: conversations.first.map { modelDisplayName($0.model) } ?? "")
       .foregroundStyle(.secondary)
       .opacity(conversations.isEmpty ? 0 : 1)
       .accessibilityElement(children: .ignore)
       .accessibilityLabel("Model")
-      .accessibilityValue(conversations.first?.model ?? "")
+      .accessibilityValue(conversations.first.map { modelDisplayName($0.model) } ?? "")
   }
 }
 

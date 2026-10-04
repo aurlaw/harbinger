@@ -4,11 +4,13 @@ import SwiftUI
 /// Settings: one plain form. The taste profile editor is the only screen pushed from it.
 struct SettingsView: View {
   @State private var model: SettingsModel
+  @State private var trackRecord: TrackRecordModel
   @Query private var profiles: [CachedTasteProfile]
   @Query private var states: [SyncState]
 
   init(session: AppSession, editor: ConnectionEditor?) {
     _model = State(initialValue: SettingsModel(session: session, editor: editor))
+    _trackRecord = State(initialValue: TrackRecordModel(client: session.client))
   }
 
   var body: some View {
@@ -30,16 +32,20 @@ struct SettingsView: View {
         }
       }
 
+      TrackRecordSection(model: trackRecord)
+
       Section("Recommendations") {
         if let allowed = model.session.allowedModels {
           Picker("Default model", selection: $model.modelSelection) {
             Text(model.serverDefaultLabel).tag(String?.none)
             ForEach(allowed, id: \.self) { name in
-              Text(name).tag(Optional(name))
+              Text(modelDisplayName(name)).tag(Optional(name))
             }
           }
         } else {
-          LabeledContent("Default model", value: model.session.savedModel ?? "Server default")
+          LabeledContent(
+            "Default model",
+            value: model.session.savedModel.map(modelDisplayName) ?? "Server default")
           Text("Couldn't load models")
             .font(.footnote)
             .foregroundStyle(.secondary)
@@ -113,6 +119,9 @@ struct SettingsView: View {
       }
     }
     .navigationTitle("Settings")
+    // Stats are fetched, not cached: load them each time Settings appears, and on pull.
+    .task { await trackRecord.load() }
+    .refreshable { await trackRecord.load() }
     .confirmationDialog(
       "Rebuild the cache?", isPresented: $model.isConfirmingRebuild, titleVisibility: .visible
     ) {

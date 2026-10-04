@@ -76,7 +76,7 @@ struct SettingsTests {
     let harness = try SessionHarness(turns: allowedModels, savedModel: "claude-retired-1")
     await harness.session.loadModels()
     let model = SettingsModel(session: harness.session, editor: nil)
-    #expect(model.serverDefaultLabel == "Server default (claude-sonnet-5)")
+    #expect(model.serverDefaultLabel == "Server default (Sonnet 5)")
     // Not allowed any more: the picker falls back to "Server default".
     #expect(model.modelSelection == nil)
 

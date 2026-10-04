@@ -262,6 +262,44 @@ nonisolated struct SyncResponse: Codable, Sendable, Equatable {
   let lastImportAt: Date?
 }
 
+// MARK: - Track record (`GET /stats/outcomes`)
+
+/// How recommended films that have since been rated landed, overall and per model.
+nonisolated struct OutcomeStats: Codable, Sendable, Equatable {
+  /// A rating at or above this (half-stars; 7 = ★3.5) is a hit.
+  let hitThresholdHalfStars: Int
+  let recommended: Int
+  let rated: Int
+  let hits: Int
+  /// `nil` when nothing is rated.
+  let hitRate: Double?
+  /// `nil` when nothing is rated.
+  let averageHalfStars: Double?
+  let byModel: [ModelOutcome]
+  /// The most recent outcomes, newest first.
+  let recent: [Outcome]
+}
+
+nonisolated struct ModelOutcome: Codable, Sendable, Equatable {
+  let model: String
+  let recommended: Int
+  let rated: Int
+  let hits: Int
+  /// `nil` when none of the model's picks are rated.
+  let hitRate: Double?
+}
+
+/// A recommended film that was later rated. `Hashable` so a `Route` can carry the list.
+nonisolated struct Outcome: Codable, Sendable, Hashable {
+  let tmdbId: Int
+  let title: String
+  let year: Int?
+  let halfStars: Int
+  let hit: Bool
+  let model: String
+  let firstRecommendedAt: Date
+}
+
 // MARK: - Request bodies
 
 nonisolated struct CreateConversationBody: Codable, Sendable, Equatable {

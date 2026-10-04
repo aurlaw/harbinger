@@ -109,6 +109,31 @@ enum Fixtures {
       "last_import_at": "2026-09-24T21:54:00.000Z" }
     """
 
+  /// `GET /stats/outcomes` in the Worker's shape (`worker/src/outcomes/handlers.ts`).
+  static let outcomeStats = """
+    { "hit_threshold_half_stars": 7, "recommended": 41, "rated": 12, "hits": 9,
+      "hit_rate": 0.75, "average_half_stars": 7.4,
+      "by_model": [
+        { "model": "claude-sonnet-5", "recommended": 30, "rated": 9, "hits": 7,
+          "hit_rate": 0.778 },
+        { "model": "claude-opus-5-5", "recommended": 11, "rated": 3, "hits": 2,
+          "hit_rate": 0.667 }
+      ],
+      "recent": [
+        { "tmdb_id": 12345, "title": "Noroi: The Curse", "year": 2005, "half_stars": 9,
+          "hit": true, "model": "claude-sonnet-5",
+          "first_recommended_at": "2026-09-29T18:01:30.456Z" },
+        { "tmdb_id": 67890, "title": "Lake Mungo", "year": null, "half_stars": 4,
+          "hit": false, "model": "claude-opus-5-5",
+          "first_recommended_at": "2026-09-20T09:00:00.000Z" }
+      ] }
+    """
+
+  static let emptyOutcomeStats = """
+    { "hit_threshold_half_stars": 7, "recommended": 0, "rated": 0, "hits": 0,
+      "hit_rate": null, "average_half_stars": null, "by_model": [], "recent": [] }
+    """
+
   static func error(_ code: String, _ message: String = "Something went wrong") -> String {
     #"{ "error": { "code": "\#(code)", "message": "\#(message)" } }"#
   }

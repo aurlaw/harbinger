@@ -10,6 +10,9 @@ nonisolated enum Route: Hashable, Sendable {
   case settings
   /// The taste profile editor, pushed from Settings.
   case tasteProfile
+  /// The track record's recent outcomes, pushed from Settings. Carries the list itself:
+  /// outcomes are fetched, not cached, so there is nothing to look up by id.
+  case recentOutcomes([Outcome])
 }
 
 /// The root screen: conversations, newest first.
@@ -131,6 +134,8 @@ private struct ConversationList: View {
         SettingsView(session: session, editor: connectionEditor)
       case .tasteProfile:
         TasteProfileEditorView(session: session)
+      case .recentOutcomes(let outcomes):
+        RecentOutcomesView(outcomes: outcomes)
       }
     }
   }

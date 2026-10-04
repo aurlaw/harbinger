@@ -40,7 +40,7 @@ final class SettingsModel {
 
   /// The picker's "Server default" row, naming the server's default when it is known.
   var serverDefaultLabel: String {
-    session.defaultModel.map { "Server default (\($0))" } ?? "Server default"
+    session.defaultModel.map { "Server default (\(modelDisplayName($0)))" } ?? "Server default"
   }
 
   /// The picker's selection: the saved model while the server still allows it, otherwise

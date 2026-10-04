@@ -21,6 +21,8 @@ nonisolated protocol APIClient: Sendable {
   func draftTasteProfile(model: String?) async throws(APIError) -> TasteProfileDraft
   /// `since` is a previous response's `nextSince`, passed back unchanged; `nil` for a full pull.
   func sync(since: String?) async throws(APIError) -> SyncResponse
+  /// The track record: how past picks that have since been rated landed.
+  func outcomeStats() async throws(APIError) -> OutcomeStats
 }
 
 /// Per-request timeouts. A chat turn or draft can take a minute+ (Claude + TMDB + replacements).
@@ -119,6 +121,10 @@ nonisolated final class URLSessionAPIClient: APIClient {
   func sync(since: String?) async throws(APIError) -> SyncResponse {
     let query = since.map { [URLQueryItem(name: "since", value: $0)] } ?? []
     return try await send(request("GET", ["sync"], query: query, timeout: RequestTimeout.sync))
+  }
+
+  func outcomeStats() async throws(APIError) -> OutcomeStats {
+    try await send(request("GET", ["stats", "outcomes"], timeout: RequestTimeout.standard))
   }
 
   // MARK: - Plumbing
