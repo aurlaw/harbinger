@@ -12,6 +12,8 @@ struct RootView: View {
   @State private var connection: Connection?
   @State private var sync = SyncController()
   @State private var session: AppSession?
+  /// Set when Settings saves a different endpoint: the next session rebuilds the cache.
+  @State private var endpointChanged = false
 
   init(configuration: AppConfiguration, container: ModelContainer) {
     self.configuration = configuration
@@ -26,6 +28,7 @@ struct RootView: View {
           ConversationListView()
         }
         .environment(session)
+        .environment(\.connectionEditor, connectionEditor)
         // A new session (new connection) gets fresh screens: lists keep the refresh action
         // they were first given.
         .id(ObjectIdentifier(session))
@@ -45,15 +48,32 @@ struct RootView: View {
       sync.connect(service)
       let session = AppSession(
         connection: connection, client: configuration.makeClient(connection),
-        syncService: service, sync: sync, open: { [openURL] in openURL($0) })
+        syncService: service, sync: sync, open: { [openURL] in openURL($0) },
+        modelPreference: configuration.modelPreference)
       self.session = session
-      async let synced: Void = sync.syncIfStale()
+      // A new endpoint is a different server: rebuild rather than sync on top of old rows.
+      async let synced: Void = sync.start(endpointChanged: endpointChanged)
       async let models: Void = session.loadModels()
       _ = await (synced, models)
+      if !Task.isCancelled {
+        endpointChanged = false
+      }
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       Task { await sync.syncIfStale() }
     }
+  }
+
+  private var connectionEditor: ConnectionEditor {
+    ConnectionEditor(configuration: configuration, apply: { apply($0) })
+  }
+
+  /// Settings saved a connection: the `.task(id: connection)` above rebuilds the session.
+  private func apply(_ new: Connection) {
+    if isDifferentServer(from: connection, to: new) {
+      endpointChanged = true
+    }
+    connection = new
   }
 }

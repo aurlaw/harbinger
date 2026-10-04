@@ -7,8 +7,9 @@ nonisolated enum Route: Hashable, Sendable {
   case newConversation
   /// A pick card's detail screen.
   case recommendation(String)
-  /// Interim settings: the sync status screen (I5 replaces it).
   case settings
+  /// The taste profile editor, pushed from Settings.
+  case tasteProfile
 }
 
 /// The root screen: conversations, newest first.
@@ -22,6 +23,7 @@ struct ConversationListView: View {
 
 private struct ConversationList: View {
   let session: AppSession
+  @Environment(\.connectionEditor) private var connectionEditor
   @Query(sort: \CachedConversation.updatedAt, order: .reverse)
   private var conversations: [CachedConversation]
 
@@ -106,8 +108,9 @@ private struct ConversationList: View {
       case .recommendation(let id):
         PickDetailView(recommendationID: id)
       case .settings:
-        SyncStatusView(host: session.connection.baseURL.host(), sync: session.sync)
-          .navigationTitle("Settings")
+        SettingsView(session: session, editor: connectionEditor)
+      case .tasteProfile:
+        TasteProfileEditorView(session: session)
       }
     }
   }

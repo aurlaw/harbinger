@@ -11,26 +11,37 @@ struct SessionHarness {
   let decisions: DecisionScript
   let management: ManagementScript
   let syncs: SyncRecorder
+  let profiles: ProfileScript
+  /// A throwaway suite, so the saved default model never leaks between tests (or from the
+  /// simulator's real settings).
+  let modelPreference: ModelPreferenceStore
   let opener = OpenRecorder()
   let container: ModelContainer
   let session: AppSession
 
   init(
     turns: TurnScript = TurnScript(), decisions: DecisionScript = DecisionScript(),
-    management: ManagementScript = ManagementScript(), syncs: SyncRecorder = SyncRecorder()
+    management: ManagementScript = ManagementScript(), syncs: SyncRecorder = SyncRecorder(),
+    profiles: ProfileScript = ProfileScript(), savedModel: String? = nil
   ) throws {
     self.turns = turns
     self.decisions = decisions
     self.management = management
     self.syncs = syncs
+    self.profiles = profiles
+    let suite = "SessionHarness-\(UUID().uuidString)"
+    modelPreference = ModelPreferenceStore(defaults: try #require(UserDefaults(suiteName: suite)))
+    modelPreference.save(savedModel)
     container = try CacheStore.inMemory()
     let client = FakeAPIClient(
-      syncs: syncs, turns: turns, decisions: decisions, management: management)
+      syncs: syncs, turns: turns, decisions: decisions, management: management,
+      profiles: profiles)
     let service = SyncService(modelContainer: container, client: client)
     let sync = SyncController(service: service)
     session = AppSession(
       connection: Connection(baseURL: testBaseURL, apiKey: testAPIKey), client: client,
-      syncService: service, sync: sync, open: { [opener] in opener.open($0) })
+      syncService: service, sync: sync, open: { [opener] in opener.open($0) },
+      modelPreference: modelPreference)
   }
 
   /// Conversations, messages, recommendations (as in `CacheReader.counts()`, first three).

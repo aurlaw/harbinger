@@ -133,10 +133,11 @@ final class SaveFailure: Sendable {
   }
 }
 
-/// A sync service that only counts calls.
+/// A sync service that only counts calls (`calls` for `sync()`, `resets` for `resetAndSync()`).
 final class FakeSyncService: SyncServicing {
   private struct State {
     var calls = 0
+    var resets = 0
     var result: Result<SyncResult, SyncError>
   }
 
@@ -147,6 +148,7 @@ final class FakeSyncService: SyncServicing {
   }
 
   var calls: Int { state.withLock { $0.calls } }
+  var resets: Int { state.withLock { $0.resets } }
 
   func set(_ result: Result<SyncResult, SyncError>) {
     state.withLock { $0.result = result }
@@ -155,6 +157,13 @@ final class FakeSyncService: SyncServicing {
   func sync() async throws(SyncError) -> SyncResult {
     try state.withLock { state -> Result<SyncResult, SyncError> in
       state.calls += 1
+      return state.result
+    }.get()
+  }
+
+  func resetAndSync() async throws(SyncError) -> SyncResult {
+    try state.withLock { state -> Result<SyncResult, SyncError> in
+      state.resets += 1
       return state.result
     }.get()
   }

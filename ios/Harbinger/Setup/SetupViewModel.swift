@@ -5,9 +5,9 @@ import Observation
 /// only when the check passes.
 @Observable
 final class SetupViewModel {
-  static let invalidURLMessage = "Enter a valid https URL (http is allowed for localhost)"
-  static let keyRejectedMessage = "Key rejected"
-  static let unreachableMessage = "Can't reach endpoint"
+  static let invalidURLMessage = ConnectionCheck.invalidURLMessage
+  static let keyRejectedMessage = ConnectionCheck.keyRejectedMessage
+  static let unreachableMessage = ConnectionCheck.unreachableMessage
 
   var endpoint = defaultEndpoint
   var apiKey = ""
@@ -29,38 +29,21 @@ final class SetupViewModel {
     guard canSave else { return nil }
     errorMessage = nil
 
-    guard case .success(let url) = normalizeEndpoint(endpoint) else {
-      errorMessage = Self.invalidURLMessage
-      return nil
-    }
-    let connection = Connection(baseURL: url, apiKey: trimmed(apiKey))
-
     isChecking = true
     defer { isChecking = false }
-    do {
-      _ = try await configuration.makeClient(connection).health()
-    } catch {
-      errorMessage = Self.message(for: error)
+    let result = await ConnectionCheck.verifyAndSave(
+      endpoint: endpoint, apiKey: trimmed(apiKey), configuration: configuration)
+    switch result {
+    case .success(let connection):
+      return connection
+    case .failure(let failure):
+      errorMessage = failure.message
       return nil
     }
-
-    do {
-      try configuration.save(connection)
-    } catch {
-      errorMessage = "Couldn't save the key (\(error))"
-      return nil
-    }
-    return connection
   }
 
   static func message(for error: APIError) -> String {
-    switch error {
-    case .unauthorized: keyRejectedMessage
-    case .network: unreachableMessage
-    case .server(_, let code, _, _): "Unexpected response (\(code))"
-    case .decoding: "Unexpected response (decoding)"
-    case .invalidResponse: "Unexpected response (invalid_response)"
-    }
+    ConnectionCheck.message(for: error)
   }
 
   private func trimmed(_ text: String) -> String {

@@ -42,6 +42,31 @@ nonisolated func renameErrorMessage(_ error: APIError) -> String {
   }
 }
 
+/// Error text for a failed taste-profile draft.
+nonisolated func draftErrorMessage(_ error: APIError) -> String {
+  switch error {
+  case .unauthorized:
+    return "API key rejected."
+  case .network:
+    return "Can't reach the server."
+  case .server(_, "no_ratings", _, _):
+    return "Import your Letterboxd ratings first."
+  case .server(_, "claude_unavailable", _, _):
+    return "The service is busy — try again in a moment."
+  case .server, .decoding, .invalidResponse:
+    return "Couldn't draft — try again."
+  }
+}
+
+/// Error text for a failed taste-profile save.
+nonisolated func profileSaveErrorMessage(_ error: APIError) -> String {
+  switch error {
+  case .unauthorized: "API key rejected."
+  case .network: "Can't reach the server."
+  case .server, .decoding, .invalidResponse: "Couldn't save — try again."
+  }
+}
+
 /// A user bubble's text: a just-pick turn with no text reads "Just pick for me".
 nonisolated func userBubbleText(text: String?, justPick: Bool) -> String {
   if let text, !text.isEmpty { return text }
@@ -127,4 +152,30 @@ nonisolated enum TitleLimit {
   static func isValid(_ title: String) -> Bool {
     (1...maxLength).contains(length(title))
   }
+}
+
+/// The Worker's taste-profile rule: 1–4,000 characters after trimming, counted as JavaScript
+/// `string.length` (UTF-16 code units, so an emoji counts as 2) — like `MessageLimit`, and
+/// unlike titles, which the server counts in code points (`TitleLimit`).
+nonisolated enum ProfileLimit {
+  static let maxLength = 4000
+
+  static func trimmed(_ text: String) -> String {
+    text.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  static func length(_ text: String) -> Int {
+    trimmed(text).utf16.count
+  }
+
+  static func isValid(_ text: String) -> Bool {
+    (1...maxLength).contains(length(text))
+  }
+}
+
+/// A taste profile predates the last import when it was saved before it. Unknown (either
+/// date missing) is not stale.
+nonisolated func profileIsStale(updatedAt: Date?, lastImportAt: Date?) -> Bool {
+  guard let updatedAt, let lastImportAt else { return false }
+  return updatedAt < lastImportAt
 }

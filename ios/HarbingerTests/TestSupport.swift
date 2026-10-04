@@ -299,8 +299,59 @@ final class ManagementScript: Sendable {
   }
 }
 
-/// `health()`, `sync(since:)`, `models()`, chat turns, decisions, and conversation rename /
-/// delete are scripted; everything else fails.
+/// Scripts `draftTasteProfile` / `saveTasteProfile`: records each call and answers with the
+/// next queued result of its kind.
+final class ProfileScript: Sendable {
+  enum Call: Equatable, Sendable {
+    case draft(model: String?)
+    case save(content: String)
+  }
+
+  private struct State {
+    var calls: [Call] = []
+    var drafts: [Result<TasteProfileDraft, APIError>]
+    var saves: [Result<TasteProfile, APIError>]
+  }
+
+  private let state: Mutex<State>
+  /// Holds each request open, so tests can act while it is in flight.
+  private let delay: Duration?
+
+  init(
+    drafts: [Result<TasteProfileDraft, APIError>] = [],
+    saves: [Result<TasteProfile, APIError>] = [], delay: Duration? = nil
+  ) {
+    self.state = Mutex(State(drafts: drafts, saves: saves))
+    self.delay = delay
+  }
+
+  var calls: [Call] { state.withLock { $0.calls } }
+
+  fileprivate func draft(model: String?) async -> Result<TasteProfileDraft, APIError> {
+    let result = state.withLock { state -> Result<TasteProfileDraft, APIError> in
+      state.calls.append(.draft(model: model))
+      return state.drafts.isEmpty ? .failure(.invalidResponse) : state.drafts.removeFirst()
+    }
+    if let delay {
+      try? await Task.sleep(for: delay)
+    }
+    return result
+  }
+
+  fileprivate func save(content: String) async -> Result<TasteProfile, APIError> {
+    let result = state.withLock { state -> Result<TasteProfile, APIError> in
+      state.calls.append(.save(content: content))
+      return state.saves.isEmpty ? .failure(.invalidResponse) : state.saves.removeFirst()
+    }
+    if let delay {
+      try? await Task.sleep(for: delay)
+    }
+    return result
+  }
+}
+
+/// `health()`, `sync(since:)`, `models()`, chat turns, decisions, conversation rename /
+/// delete, and taste-profile draft / save are scripted; everything else fails.
 final class FakeAPIClient: APIClient {
   let connection: Connection
   let recorder: HealthRecorder
@@ -308,11 +359,12 @@ final class FakeAPIClient: APIClient {
   let turns: TurnScript?
   let decisions: DecisionScript?
   let management: ManagementScript?
+  let profiles: ProfileScript?
 
   init(
     connection: Connection, recorder: HealthRecorder, syncs: SyncRecorder? = nil,
     turns: TurnScript? = nil, decisions: DecisionScript? = nil,
-    management: ManagementScript? = nil
+    management: ManagementScript? = nil, profiles: ProfileScript? = nil
   ) {
     self.connection = connection
     self.recorder = recorder
@@ -320,16 +372,18 @@ final class FakeAPIClient: APIClient {
     self.turns = turns
     self.decisions = decisions
     self.management = management
+    self.profiles = profiles
   }
 
   convenience init(
     syncs: SyncRecorder = SyncRecorder(), turns: TurnScript? = nil,
-    decisions: DecisionScript? = nil, management: ManagementScript? = nil
+    decisions: DecisionScript? = nil, management: ManagementScript? = nil,
+    profiles: ProfileScript? = nil
   ) {
     self.init(
       connection: Connection(baseURL: testBaseURL, apiKey: testAPIKey),
       recorder: HealthRecorder(result: .success(HealthResponse(status: "ok"))), syncs: syncs,
-      turns: turns, decisions: decisions, management: management)
+      turns: turns, decisions: decisions, management: management, profiles: profiles)
   }
 
   func health() async throws(APIError) -> HealthResponse {
@@ -374,10 +428,12 @@ final class FakeAPIClient: APIClient {
   }
   func tasteProfile() async throws(APIError) -> TasteProfile? { throw .invalidResponse }
   func saveTasteProfile(content: String) async throws(APIError) -> TasteProfile {
-    throw .invalidResponse
+    guard let profiles else { throw .invalidResponse }
+    return try await profiles.save(content: content).get()
   }
   func draftTasteProfile(model: String?) async throws(APIError) -> TasteProfileDraft {
-    throw .invalidResponse
+    guard let profiles else { throw .invalidResponse }
+    return try await profiles.draft(model: model).get()
   }
   func sync(since: String?) async throws(APIError) -> SyncResponse {
     guard let syncs else { throw .invalidResponse }

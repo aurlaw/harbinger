@@ -93,6 +93,24 @@ nonisolated enum RenameOutcome: Equatable, Sendable {
   case rejected
 }
 
+nonisolated enum ProfileDraftOutcome: Equatable, Sendable {
+  /// Not saved: the editor shows it, and nothing is cached until the user saves.
+  case drafted(TasteProfileDraft)
+  case failed(String)
+  /// A draft is already in flight; no request was made.
+  case rejected
+}
+
+nonisolated enum ProfileSaveOutcome: Equatable, Sendable {
+  /// Saved on the server and cached.
+  case saved(TasteProfile)
+  case failed(String)
+  /// Empty or over `ProfileLimit.maxLength` after trimming; no request was made.
+  case invalid
+  /// A save is already in flight; no request was made.
+  case rejected
+}
+
 /// Everything a connected screen needs: the API client, the cache writer, and the sync
 /// controller. Created by `RootView` once a connection exists and injected with
 /// `.environment(_:)`.
@@ -109,6 +127,8 @@ final class AppSession {
   /// From `GET /models`, once per session; `nil` until loaded or if loading failed.
   private(set) var defaultModel: String?
   private(set) var allowedModels: [String]?
+  /// The user's default model (Settings); `nil` means the server default.
+  private(set) var savedModel: String?
 
   /// Turns in flight, by target.
   private(set) var pending: [TurnTarget: PendingTurn] = [:]
@@ -124,6 +144,11 @@ final class AppSession {
   private(set) var deleting: Set<String> = []
   private(set) var renaming: Set<String> = []
 
+  /// A taste-profile draft / save in flight.
+  private(set) var isDraftingProfile = false
+  private(set) var isSavingProfile = false
+
+  private let modelPreference: ModelPreferenceStore
   private let now: () -> Date
   /// Opens external links (Letterboxd after a Yes). `RootView` passes the `openURL` action.
   private let open: (URL) -> Void
@@ -132,6 +157,7 @@ final class AppSession {
   init(
     connection: Connection, client: any APIClient, syncService: SyncService,
     sync: SyncController, open: @escaping (URL) -> Void,
+    modelPreference: ModelPreferenceStore = ModelPreferenceStore(),
     now: @escaping () -> Date = Date.init
   ) {
     self.connection = connection
@@ -139,7 +165,21 @@ final class AppSession {
     self.syncService = syncService
     self.sync = sync
     self.open = open
+    self.modelPreference = modelPreference
+    self.savedModel = modelPreference.model()
     self.now = now
+  }
+
+  /// The model for new conversations and drafts: the saved default if the server still
+  /// allows it, else the server default; `nil` (models not loaded) lets the server choose.
+  var preferredModel: String? {
+    resolveModel(saved: savedModel, allowed: allowedModels, serverDefault: defaultModel)
+  }
+
+  /// Saves the default model; `nil` clears it ("Server default").
+  func setSavedModel(_ model: String?) {
+    modelPreference.save(model)
+    savedModel = model
   }
 
   func loadModels() async {
@@ -268,6 +308,64 @@ final class AppSession {
       await sync.syncNow()
     }
     failures[.conversation(id)] = nil
+  }
+
+  // MARK: - Taste profile
+
+  /// Asks the server for a draft. Nothing is saved or cached; a draft that completes after
+  /// the editor has gone is simply dropped. Like turns, the request runs in a task the
+  /// session owns.
+  func draftTasteProfile() async -> ProfileDraftOutcome {
+    guard !isDraftingProfile else { return .rejected }
+    isDraftingProfile = true
+    let model = preferredModel
+
+    let task = Task {
+      let outcome = await self.performDraft(model: model)
+      self.isDraftingProfile = false
+      return outcome
+    }
+    return await task.value
+  }
+
+  private func performDraft(model: String?) async -> ProfileDraftOutcome {
+    do {
+      return .drafted(try await client.draftTasteProfile(model: model))
+    } catch {
+      return .failed(draftErrorMessage(error))
+    }
+  }
+
+  /// Saves the profile and caches the server's copy.
+  @discardableResult
+  func saveTasteProfile(content: String) async -> ProfileSaveOutcome {
+    let content = ProfileLimit.trimmed(content)
+    guard ProfileLimit.isValid(content) else { return .invalid }
+    guard !isSavingProfile else { return .rejected }
+    isSavingProfile = true
+
+    let task = Task {
+      let outcome = await self.performProfileSave(content)
+      self.isSavingProfile = false
+      return outcome
+    }
+    return await task.value
+  }
+
+  private func performProfileSave(_ content: String) async -> ProfileSaveOutcome {
+    let profile: TasteProfile
+    do {
+      profile = try await client.saveTasteProfile(content: content)
+    } catch {
+      return .failed(profileSaveErrorMessage(error))
+    }
+    // Saved on the server. If caching it fails, a sync will deliver it.
+    do {
+      try await syncService.ingest(profile)
+    } catch {
+      await sync.syncNow()
+    }
+    return .saved(profile)
   }
 
   // MARK: - Decisions

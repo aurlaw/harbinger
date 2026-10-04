@@ -21,6 +21,7 @@ nonisolated struct SyncResult: Sendable, Equatable {
 /// What the sync controller needs from the service (a seam for tests).
 nonisolated protocol SyncServicing: Sendable {
   func sync() async throws(SyncError) -> SyncResult
+  func resetAndSync() async throws(SyncError) -> SyncResult
 }
 
 /// The only writer to the cache. Pulls `/sync`, upserts by id, and advances the cursor in

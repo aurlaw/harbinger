@@ -41,8 +41,27 @@ final class SyncController {
     await syncNow()
   }
 
+  /// A (new) connection's first sync. A different endpoint is a different server, so the
+  /// cache is rebuilt from it instead of synced on top of the old server's rows.
+  func start(endpointChanged: Bool) async {
+    if endpointChanged {
+      await rebuild()
+    } else {
+      await syncIfStale()
+    }
+  }
+
   /// Manual (pull-to-refresh): always syncs. Does nothing until a service is connected.
   func syncNow() async {
+    await run(rebuild: false)
+  }
+
+  /// Clears the cache and pulls everything again (Settings, and an endpoint change).
+  func rebuild() async {
+    await run(rebuild: true)
+  }
+
+  private func run(rebuild: Bool) async {
     guard let service else { return }
     running += 1
     isSyncing = true
@@ -51,7 +70,7 @@ final class SyncController {
       isSyncing = running > 0
     }
     do {
-      _ = try await service.sync()
+      _ = rebuild ? try await service.resetAndSync() : try await service.sync()
       lastSuccess = now()
       lastError = nil
     } catch {

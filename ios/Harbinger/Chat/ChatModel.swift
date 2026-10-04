@@ -33,8 +33,9 @@ final class ChatModel {
   var pending: PendingTurn? { session.pending[target] }
   var failure: TurnFailure? { session.failures[target] }
 
-  /// The model a new conversation will use: the user's choice, else the server default.
-  var model: String? { selectedModel ?? session.defaultModel }
+  /// The model a new conversation will use: the choice made on this screen, else the saved
+  /// default (if still allowed), else the server default.
+  var model: String? { selectedModel ?? session.preferredModel }
 
   var draftLength: Int { MessageLimit.length(draft) }
   var isOverLimit: Bool { draftLength > MessageLimit.maxLength }
