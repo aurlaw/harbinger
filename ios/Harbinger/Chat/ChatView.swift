@@ -31,13 +31,6 @@ struct ChatView: View {
         }
       }
       .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        if model.isNew, let allowed = model.session.allowedModels {
-          ToolbarItem(placement: .topBarTrailing) {
-            ModelPicker(model: model, allowed: allowed)
-          }
-        }
-      }
       .actionErrorAlert(actions)
       .onChange(of: model.arrival, initial: true) {
         model.arrivalChanged()
@@ -66,26 +59,6 @@ private struct StarterSuggestions: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.horizontal)
     .padding(.vertical, 8)
-  }
-}
-
-private struct ModelPicker: View {
-  @Bindable var model: ChatModel
-  let allowed: [String]
-
-  var body: some View {
-    Menu {
-      Picker("Model", selection: $model.selectedModel) {
-        ForEach(allowed, id: \.self) { name in
-          Text(name).tag(Optional(name))
-        }
-      }
-    } label: {
-      Label(model.model ?? "Model", systemImage: "cpu")
-        .labelStyle(.titleAndIcon)
-        .font(.subheadline)
-    }
-    .disabled(model.isSending)
   }
 }
 

@@ -76,7 +76,10 @@ struct TasteProfileEditorView: View {
           .disabled(model.isBusy)
       }
       ToolbarItem(placement: .confirmationAction) {
+        // Accent background, white text.
         Button("Save", action: model.save)
+          .buttonStyle(.borderedProminent)
+          .tint(.accentColor)
           .disabled(!model.canSave)
       }
     }

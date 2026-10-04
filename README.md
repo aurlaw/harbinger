@@ -5,7 +5,7 @@ A Horror Movie Recommendations APP
 
 - `worker/` — Cloudflare Worker + D1 API (`https://harbinger-api.aurlaw.dev`)
 - `cli/` — Letterboxd import CLI (Go)
-- `ios/` — iOS app (SwiftUI) — not yet built
+- `ios/` — iOS app (SwiftUI)
 
 ## Worker
 

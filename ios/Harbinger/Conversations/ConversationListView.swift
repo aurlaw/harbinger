@@ -110,11 +110,13 @@ private struct ConversationList: View {
         NavigationLink(value: Route.settings) {
           Label("Settings", systemImage: "gearshape")
         }
+        .tint(.accentColor)
       }
       ToolbarItem(placement: .topBarTrailing) {
         NavigationLink(value: Route.newConversation) {
           Label("New conversation", systemImage: "square.and.pencil")
         }
+        .tint(.accentColor)
       }
     }
     .navigationDestination(for: Route.self) { route in
