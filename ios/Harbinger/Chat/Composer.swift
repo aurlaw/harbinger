@@ -5,6 +5,7 @@ import SwiftUI
 /// Just pick.
 struct Composer: View {
   @Bindable var model: ChatModel
+  @FocusState private var isEditing: Bool
 
   var body: some View {
     VStack(alignment: .trailing, spacing: 8) {
@@ -19,6 +20,7 @@ struct Composer: View {
           .padding(.horizontal, 12)
           .padding(.vertical, 8)
           .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 18))
+          .focused($isEditing)
         Button(action: model.send) {
           Image(systemName: "arrow.up.circle.fill")
             .font(.title)
@@ -29,6 +31,14 @@ struct Composer: View {
       HStack(spacing: 8) {
         ModelControl(model: model)
         Spacer(minLength: 8)
+        // The keyboard covers the transcript, and a multi-line field has no Return-to-dismiss.
+        if isEditing {
+          Button("Hide keyboard", systemImage: "keyboard.chevron.compact.down") {
+            isEditing = false
+          }
+          .labelStyle(.iconOnly)
+          .buttonStyle(.bordered)
+        }
         Button("Just pick", action: model.justPick)
           .buttonStyle(.bordered)
           .disabled(!model.canJustPick)

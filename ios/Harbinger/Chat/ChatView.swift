@@ -122,6 +122,8 @@ private struct ChatTranscript: View {
         .padding()
       }
       .defaultScrollAnchor(.bottom)
+      // Dragging the transcript down also puts the keyboard away.
+      .scrollDismissesKeyboard(.interactively)
       .onChange(of: messages.count) {
         withAnimation { proxy.scrollTo(Self.bottom) }
       }
