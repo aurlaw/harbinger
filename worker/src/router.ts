@@ -1,4 +1,11 @@
-import { appendMessage, createConversation, getConversation, listModels } from "./conversations/handlers";
+import {
+  appendMessage,
+  createConversation,
+  deleteConversation,
+  getConversation,
+  listModels,
+  renameConversation,
+} from "./conversations/handlers";
 import { putDecision } from "./decisions/handlers";
 import { health } from "./health";
 import { errorResponse } from "./http";
@@ -43,7 +50,14 @@ const routes = new Map<string, Map<string, Handler>>([
 // Parameterized routes, checked after the static map. Named groups become params.
 const paramRoutes: { pattern: RegExp; methods: Map<string, Handler> }[] = [
   { pattern: /^\/tmdb\/movie\/(?<id>[^/]+)$/, methods: new Map([["GET", movieDetails]]) },
-  { pattern: /^\/conversations\/(?<id>[^/]+)$/, methods: new Map([["GET", getConversation]]) },
+  {
+    pattern: /^\/conversations\/(?<id>[^/]+)$/,
+    methods: new Map([
+      ["GET", getConversation],
+      ["PATCH", renameConversation],
+      ["DELETE", deleteConversation],
+    ]),
+  },
   { pattern: /^\/conversations\/(?<id>[^/]+)\/messages$/, methods: new Map([["POST", appendMessage]]) },
   { pattern: /^\/decisions\/(?<id>[^/]+)$/, methods: new Map([["PUT", putDecision]]) },
 ];

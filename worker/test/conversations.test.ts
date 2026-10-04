@@ -603,6 +603,7 @@ describe("endpoints + persistence", () => {
       question_rounds: 1,
       created_at: expect.any(String),
       updated_at: expect.any(String),
+      deleted_at: null,
     });
     expect(body.conversation.title.length).toBeLessThanOrEqual(60);
     expect(body.messages).toStrictEqual([

@@ -44,7 +44,8 @@ export async function putDecision(request: Request, env: Env, params: Record<str
 
   return withJsonBody(validateDecision, async (input) => {
     const [conversation, recommended] = await env.DB.batch([
-      env.DB.prepare("SELECT 1 FROM conversations WHERE id = ?").bind(input.conversation_id),
+      // A deleted conversation counts as missing.
+      env.DB.prepare("SELECT 1 FROM conversations WHERE id = ? AND deleted_at IS NULL").bind(input.conversation_id),
       env.DB.prepare("SELECT 1 FROM recommendations WHERE conversation_id = ? AND tmdb_id = ? LIMIT 1").bind(
         input.conversation_id,
         tmdbId,

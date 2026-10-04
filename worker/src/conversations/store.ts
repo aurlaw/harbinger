@@ -11,6 +11,8 @@ export interface ConversationRow {
   question_rounds: number;
   created_at: string;
   updated_at: string;
+  /** NULL = live; set = a tombstone (content gone, row kept for decisions' foreign key). */
+  deleted_at: string | null;
 }
 
 export interface MessageRow {
@@ -60,10 +62,18 @@ export interface ConversationState {
 /** Two concurrent sends to one conversation collided on (conversation_id, seq). */
 export class ConversationBusy extends Error {}
 
-/** Loads a conversation with all messages (seq order) and recommendations (position order). */
+/** The conversation was deleted between loadConversation and saveTurn; nothing was written. */
+export class ConversationDeleted extends Error {}
+
+export const CONVERSATION_COLUMNS = "id, model, title, question_rounds, created_at, updated_at, deleted_at";
+
+/**
+ * Loads a live conversation with all messages (seq order) and recommendations
+ * (position order). A deleted conversation is null, like an unknown one.
+ */
 export async function loadConversation(db: D1Database, id: string): Promise<ConversationState | null> {
   const [conversation, messages, recommendations] = await db.batch([
-    db.prepare("SELECT id, model, title, question_rounds, created_at, updated_at FROM conversations WHERE id = ?").bind(id),
+    db.prepare(`SELECT ${CONVERSATION_COLUMNS} FROM conversations WHERE id = ? AND deleted_at IS NULL`).bind(id),
     db
       .prepare(
         "SELECT id, conversation_id, seq, role, kind, content_json, created_at FROM messages WHERE conversation_id = ? ORDER BY seq",
@@ -94,8 +104,14 @@ export interface TurnWrite {
   recommendations: RecommendationRow[];
 }
 
-const INSERT_MESSAGE =
-  "INSERT INTO messages (id, conversation_id, seq, role, kind, content_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)";
+// Every turn write is conditional on the conversation still being live, so a
+// turn that was in flight when the conversation was deleted never lands in the
+// tombstone. A new conversation's row is inserted earlier in the same batch.
+const IS_LIVE = "EXISTS (SELECT 1 FROM conversations WHERE id = ?2 AND deleted_at IS NULL)";
+
+const INSERT_MESSAGE = `
+  INSERT INTO messages (id, conversation_id, seq, role, kind, content_json, created_at)
+  SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ${IS_LIVE}`;
 
 const INSERT_RECOMMENDATIONS = `
   INSERT INTO recommendations (id, conversation_id, message_id, position, tmdb_id, title, year,
@@ -104,12 +120,13 @@ const INSERT_RECOMMENDATIONS = `
          json_extract(value, '$.position'), json_extract(value, '$.tmdb_id'), json_extract(value, '$.title'),
          json_extract(value, '$.year'), json_extract(value, '$.why_short'), json_extract(value, '$.why_full'),
          json_extract(value, '$.tmdb_json'), json_extract(value, '$.created_at')
-  FROM json_each(?)`;
+  FROM json_each(?1) WHERE ${IS_LIVE}`;
 
 /**
  * Writes one exchange atomically: (conversation), user message, assistant
  * message, recommendations, conversation update. A failed statement rolls
- * back the whole batch.
+ * back the whole batch. Throws ConversationDeleted, having written nothing,
+ * if an existing conversation was deleted in the meantime.
  */
 export async function saveTurn(db: D1Database, write: TurnWrite): Promise<void> {
   const { conversation: c, user, assistant } = write;
@@ -119,7 +136,7 @@ export async function saveTurn(db: D1Database, write: TurnWrite): Promise<void> 
   const statements = [
     message(user),
     message(assistant),
-    db.prepare(INSERT_RECOMMENDATIONS).bind(JSON.stringify(write.recommendations)),
+    db.prepare(INSERT_RECOMMENDATIONS).bind(JSON.stringify(write.recommendations), c.id),
   ];
   if (write.create) {
     statements.unshift(
@@ -132,19 +149,55 @@ export async function saveTurn(db: D1Database, write: TurnWrite): Promise<void> 
   } else {
     statements.push(
       db
-        .prepare("UPDATE conversations SET question_rounds = ?, updated_at = ? WHERE id = ?")
+        .prepare("UPDATE conversations SET question_rounds = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
         .bind(c.question_rounds, c.updated_at, c.id),
     );
   }
 
+  let results: D1Result[];
   try {
-    await db.batch(statements);
+    results = await db.batch(statements);
   } catch (err) {
     if (/UNIQUE constraint failed: messages\.conversation_id, messages\.seq/.test(String(err))) {
       throw new ConversationBusy();
     }
     throw err;
   }
+  // The conversation update is last; 0 changes means the inserts' conditions failed too.
+  if (!write.create && results.at(-1)?.meta.changes === 0) throw new ConversationDeleted();
+}
+
+/**
+ * Soft delete: drops the content, keeps the row as a tombstone. Decisions are
+ * never touched. Returns false for an unknown id; true if it is (now or
+ * already) deleted.
+ */
+export async function deleteConversation(db: D1Database, id: string): Promise<boolean> {
+  const now = new Date().toISOString();
+  const [, , , exists] = await db.batch([
+    // Recommendations reference messages, so they go first.
+    db.prepare("DELETE FROM recommendations WHERE conversation_id = ?").bind(id),
+    db.prepare("DELETE FROM messages WHERE conversation_id = ?").bind(id),
+    // title is derived from the first message, so it is content too.
+    db
+      .prepare(
+        "UPDATE conversations SET deleted_at = ?1, updated_at = ?1, title = NULL WHERE id = ?2 AND deleted_at IS NULL",
+      )
+      .bind(now, id),
+    db.prepare("SELECT 1 FROM conversations WHERE id = ?").bind(id),
+  ]);
+  return (exists?.results.length ?? 0) > 0;
+}
+
+/** Sets the title of a live conversation; null if it is unknown or deleted. */
+export async function renameConversation(db: D1Database, id: string, title: string): Promise<ConversationRow | null> {
+  return db
+    .prepare(
+      `UPDATE conversations SET title = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL
+       RETURNING ${CONVERSATION_COLUMNS}`,
+    )
+    .bind(title, new Date().toISOString(), id)
+    .first<ConversationRow>();
 }
 
 /** Stored history as prompt turns, recommendation turns rebuilt from their rows. */
@@ -173,6 +226,7 @@ export function toApiConversation(c: ConversationRow) {
     question_rounds: c.question_rounds,
     created_at: c.created_at,
     updated_at: c.updated_at,
+    deleted_at: c.deleted_at,
   };
 }
 

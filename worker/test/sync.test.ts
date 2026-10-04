@@ -173,8 +173,8 @@ describe("GET /sync — full pull", () => {
 
     // Ordered by updated_at.
     expect(body.conversations).toStrictEqual([
-      { id: "B", title: "Title B", model: "claude-sonnet-5", question_rounds: 0, created_at: T(0), updated_at: T(10) },
-      { id: "A", title: "Title A", model: "claude-sonnet-5", question_rounds: 0, created_at: T(0), updated_at: T(30) },
+      { id: "B", title: "Title B", model: "claude-sonnet-5", question_rounds: 0, created_at: T(0), updated_at: T(10), deleted_at: null },
+      { id: "A", title: "Title A", model: "claude-sonnet-5", question_rounds: 0, created_at: T(0), updated_at: T(30), deleted_at: null },
     ]);
     // By conversation_id, seq; content parsed; conversation_id present.
     expect(body.messages.map((m) => m.id)).toEqual(["a1", "a2", "a3", "a4", "b1"]);

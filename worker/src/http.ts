@@ -11,6 +11,11 @@ export function json(status: number, body: unknown, headers?: HeadersInit): Resp
   return new Response(JSON.stringify(body), { status, headers: merged });
 }
 
+/** 204: no body, so no Content-Type. */
+export function noContent(): Response {
+  return new Response(null, { status: 204, headers: { "Cache-Control": BASE_HEADERS["Cache-Control"] } });
+}
+
 export function errorResponse(
   status: number,
   code: string,

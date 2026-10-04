@@ -1,4 +1,5 @@
 import {
+  CONVERSATION_COLUMNS,
   type ConversationRow,
   type MessageRow,
   type RecommendationRow,
@@ -21,12 +22,16 @@ import { PROFILE_COLUMNS } from "../taste/handlers";
 
 export const OVERLAP_MS = 120_000;
 
-// Changed conversations. A full pull binds '' — every ISO timestamp sorts after it.
-const CHANGED = "SELECT id FROM conversations WHERE updated_at > ?1";
+// Changed live conversations. A full pull binds '' — every ISO timestamp sorts
+// after it. Deleted conversations have no content left; the filter also guards
+// against any orphan.
+const CHANGED = "SELECT id FROM conversations WHERE updated_at > ?1 AND deleted_at IS NULL";
 
+// A delta carries tombstones (deleted_at set) so the app can drop them from its
+// cache; a full pull (?1 = '') is live only — a fresh cache never needs them.
 const CONVERSATIONS = `
-  SELECT id, model, title, question_rounds, created_at, updated_at
-  FROM conversations WHERE updated_at > ?1
+  SELECT ${CONVERSATION_COLUMNS}
+  FROM conversations WHERE updated_at > ?1 AND (deleted_at IS NULL OR ?1 <> '')
   ORDER BY updated_at, id`;
 
 const MESSAGES = `

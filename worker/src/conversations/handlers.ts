@@ -1,6 +1,6 @@
 import { InvalidRequest, withJsonBody } from "../body";
 import { type ClaudeConfig, type ClaudeMessage, ClaudeError, callClaude, claudeConfig } from "../claude/client";
-import { errorResponse, json } from "../http";
+import { errorResponse, json, noContent } from "../http";
 import { buildSystemPrompt, loadLibraryPrompt, replayTurns, userTurnText } from "../recommend/prompt";
 import { pickFilms } from "../recommend/replace";
 import { OUTPUT_SCHEMA, type Reply, parseReply, recommendationFailed } from "../recommend/schema";
@@ -10,17 +10,21 @@ import { boolean, object } from "../validate";
 import {
   type ConversationRow,
   ConversationBusy,
+  ConversationDeleted,
   type ConversationState,
   type MessageRow,
   type RecommendationRow,
+  deleteConversation as deleteConversationRows,
   loadConversation,
+  renameConversation as renameConversationRow,
   saveTurn,
   toApiConversation,
   toApiMessage,
   toTurns,
 } from "./store";
 
-// GET /models, POST /conversations, POST /conversations/{id}/messages, GET /conversations/{id}
+// GET /models, POST /conversations, POST /conversations/{id}/messages,
+// GET / PATCH / DELETE /conversations/{id}
 
 type Params = Record<string, string>;
 type ConfiguredHandler = (request: Request, env: Env, params: Params, config: ClaudeConfig) => Promise<Response>;
@@ -47,6 +51,7 @@ export const listModels = withClaudeConfig(async (_request, _env, _params, confi
 
 const MAX_TEXT_LENGTH = 2000;
 const TITLE_LENGTH = 60;
+const MAX_RENAME_LENGTH = 100;
 
 function userText(value: unknown, path: string): string {
   const text = typeof value === "string" ? value.trim() : "";
@@ -113,6 +118,7 @@ export const createConversation = withClaudeConfig((request, env, _params, confi
       question_rounds: 0,
       created_at: now,
       updated_at: now,
+      deleted_at: null,
     };
     return converse(env, config, { conversation, messages: [], recommendations: [] }, true, input);
   })(request, env),
@@ -134,6 +140,35 @@ export const getConversation = withClaudeConfig(async (_request, env, params) =>
     messages: state.messages.map((m) => toApiMessage(m, state.recommendations)),
   });
 });
+
+/** A user-chosen title: trimmed, 1 to 100 characters counted as code points. */
+function validateRename(body: unknown): { title: string } {
+  const obj = object(body, "body");
+  const title = typeof obj.title === "string" ? obj.title.trim() : "";
+  const length = [...title].length;
+  if (length === 0 || length > MAX_RENAME_LENGTH) {
+    throw new InvalidRequest(`title must be a string of 1 to ${MAX_RENAME_LENGTH} characters after trimming`);
+  }
+  return { title };
+}
+
+// Rename and delete need neither Claude nor TMDB, so they skip withClaudeConfig.
+
+export function renameConversation(request: Request, env: Env, params: Params): Promise<Response> {
+  return withJsonBody(validateRename, async (input) => {
+    // Bumps updated_at, so /sync delivers the new title.
+    const conversation = await renameConversationRow(env.DB, params.id ?? "", input.title);
+    if (!conversation) return errorResponse(404, "not_found", "Conversation not found");
+    return json(200, toApiConversation(conversation));
+  })(request, env);
+}
+
+/** Idempotent: deleting an already-deleted conversation is also a 204. */
+export async function deleteConversation(_request: Request, env: Env, params: Params): Promise<Response> {
+  const found = await deleteConversationRows(env.DB, params.id ?? "");
+  if (!found) return errorResponse(404, "not_found", "Conversation not found");
+  return noContent();
+}
 
 /**
  * One exchange: prompt → Claude (question-cap retry) → parse → resolve →
@@ -243,6 +278,7 @@ async function converse(
     });
   } catch (err) {
     if (err instanceof ClaudeError || err instanceof TmdbError) return err.toResponse();
+    if (err instanceof ConversationDeleted) return errorResponse(404, "not_found", "Conversation not found");
     if (err instanceof ConversationBusy) {
       return errorResponse(409, "conversation_busy", "Another message is being processed for this conversation");
     }
