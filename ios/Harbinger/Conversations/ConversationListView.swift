@@ -1,22 +1,6 @@
 import SwiftData
 import SwiftUI
 
-/// Navigation values for the root stack. Small and `Hashable`; screens look rows up by id.
-nonisolated enum Route: Hashable, Sendable {
-  case conversation(String)
-  case newConversation
-  /// A pick card's detail screen.
-  case recommendation(String)
-  case settings
-  /// The taste profile editor, pushed from Settings.
-  case tasteProfile
-  /// The track record's recent outcomes, pushed from Settings. Carries the list itself:
-  /// outcomes are fetched, not cached, so there is nothing to look up by id.
-  case recentOutcomes([Outcome])
-  /// Every film marked Maybe.
-  case maybes
-}
-
 /// The root screen: conversations, newest first.
 struct ConversationListView: View {
   @Environment(AppSession.self) private var session
@@ -28,7 +12,6 @@ struct ConversationListView: View {
 
 private struct ConversationList: View {
   let session: AppSession
-  @Environment(\.connectionEditor) private var connectionEditor
   @Query(sort: \CachedConversation.updatedAt, order: .reverse)
   private var conversations: [CachedConversation]
 
@@ -111,42 +94,12 @@ private struct ConversationList: View {
     }
     .navigationTitle("Harbinger")
     .toolbar {
-      // Always shown: the Maybes screen has its own empty state.
-      ToolbarItem(placement: .topBarLeading) {
-        NavigationLink(value: Route.maybes) {
-          Label("Maybes", systemImage: "questionmark.circle")
-        }
-        .tint(.accentColor)
-      }
-      ToolbarItem(placement: .topBarTrailing) {
-        NavigationLink(value: Route.settings) {
-          Label("Settings", systemImage: "gearshape")
-        }
-        .tint(.accentColor)
-      }
+      // Maybes and Settings are tabs; New is the only toolbar item.
       ToolbarItem(placement: .topBarTrailing) {
         NavigationLink(value: Route.newConversation) {
           Label("New conversation", systemImage: "square.and.pencil")
         }
         .tint(.accentColor)
-      }
-    }
-    .navigationDestination(for: Route.self) { route in
-      switch route {
-      case .conversation(let id):
-        ChatView(session: session, conversationID: id)
-      case .newConversation:
-        ChatView(session: session, conversationID: nil)
-      case .recommendation(let id):
-        PickDetailView(recommendationID: id)
-      case .settings:
-        SettingsView(session: session, editor: connectionEditor)
-      case .tasteProfile:
-        TasteProfileEditorView(session: session)
-      case .recentOutcomes(let outcomes):
-        RecentOutcomesView(outcomes: outcomes)
-      case .maybes:
-        MaybesView()
       }
     }
   }

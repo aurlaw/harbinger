@@ -11,11 +11,15 @@ struct PickDetailView: View {
   }
 
   var body: some View {
-    if let pick = picks.first {
-      PickDetailContent(pick: pick, session: session)
-    } else {
-      ContentUnavailableView("Pick not found", systemImage: "film")
+    Group {
+      if let pick = picks.first {
+        PickDetailContent(pick: pick, session: session)
+      } else {
+        ContentUnavailableView("Pick not found", systemImage: "film")
+      }
     }
+    // The decision bar gets the full screen.
+    .toolbar(.hidden, for: .tabBar)
   }
 }
 

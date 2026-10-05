@@ -1,8 +1,8 @@
 import SwiftData
 import SwiftUI
 
-/// Presents the first-launch sheet until an endpoint + key are saved, then shows the
-/// conversation list and keeps the cache synced.
+/// Presents the first-launch sheet until an endpoint + key are saved, then shows the tabs
+/// and keeps the cache synced.
 struct RootView: View {
   let configuration: AppConfiguration
   let container: ModelContainer
@@ -12,6 +12,8 @@ struct RootView: View {
   @State private var connection: Connection?
   @State private var sync = SyncController()
   @State private var session: AppSession?
+  /// Replaced with each session, so a new connection starts on Picks with empty stacks.
+  @State private var navigation = AppNavigation()
   /// Set when Settings saves a different endpoint: the next session rebuilds the cache.
   @State private var endpointChanged = false
 
@@ -24,14 +26,13 @@ struct RootView: View {
   var body: some View {
     Group {
       if let session {
-        NavigationStack {
-          ConversationListView()
-        }
-        .environment(session)
-        .environment(\.connectionEditor, connectionEditor)
-        // A new session (new connection) gets fresh screens: lists keep the refresh action
-        // they were first given.
-        .id(ObjectIdentifier(session))
+        AppTabView(session: session)
+          .environment(session)
+          .environment(navigation)
+          .environment(\.connectionEditor, connectionEditor)
+          // A new session (new connection) gets fresh screens: lists keep the refresh action
+          // they were first given.
+          .id(ObjectIdentifier(session))
       } else {
         Color(.systemBackground)
       }
@@ -50,6 +51,7 @@ struct RootView: View {
         connection: connection, client: configuration.makeClient(connection),
         syncService: service, sync: sync, open: { [openURL] in openURL($0) },
         modelPreference: configuration.modelPreference)
+      navigation = AppNavigation()
       self.session = session
       // A new endpoint is a different server: rebuild rather than sync on top of old rows.
       async let synced: Void = sync.start(endpointChanged: endpointChanged)

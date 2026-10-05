@@ -290,19 +290,6 @@ struct MaybePromotionTests {
   }
 }
 
-@MainActor
-struct MaybeRouteTests {
-  @Test func routes() {
-    #expect(Route.maybes == Route.maybes)
-    #expect(Route.maybes != Route.settings)
-    let item = MaybeItem(
-      recommendationID: "rec-1", tmdbID: 1, conversationID: "conv-1", title: "", year: nil,
-      posterPath: nil, whyShort: "", decidedAt: .distantPast)
-    // A row pushes the existing pick detail screen.
-    #expect(Route.recommendation(item.recommendationID) == Route.recommendation("rec-1"))
-  }
-}
-
 extension ScreenSmokeTests {
   @Test func maybesRendersWithAMaybe() async throws {
     let harness = try await cachedHarness()

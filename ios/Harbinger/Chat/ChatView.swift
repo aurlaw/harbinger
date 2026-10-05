@@ -31,6 +31,8 @@ struct ChatView: View {
         }
       }
       .navigationBarTitleDisplayMode(.inline)
+      // The composer gets the full screen.
+      .toolbar(.hidden, for: .tabBar)
       .actionErrorAlert(actions)
       .onChange(of: model.arrival, initial: true) {
         model.arrivalChanged()
