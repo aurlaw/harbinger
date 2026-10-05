@@ -27,6 +27,9 @@ private struct PickDetailContent: View {
   let pick: CachedRecommendation
   @State private var model: PickDetailModel
   @Query private var decisions: [CachedDecision]
+  /// From the poster; `nil` (the system background) until it loads, or without a poster.
+  @State private var palette: DetailPalette?
+  @Environment(\.colorScheme) private var systemScheme
 
   init(pick: CachedRecommendation, session: AppSession) {
     self.pick = pick
@@ -51,7 +54,7 @@ private struct PickDetailContent: View {
             .font(.largeTitle.bold())
           if !info.metadata.isEmpty {
             Text(info.metadata)
-              .foregroundStyle(.secondary)
+              .foregroundStyle(.detailSecondary)
           }
         }
 
@@ -70,13 +73,46 @@ private struct PickDetailContent: View {
       }
       .padding()
     }
+    .background(palette.map { Color($0.background) } ?? Color(.systemBackground))
     .navigationTitle(info.title)
     .navigationBarTitleDisplayMode(.inline)
     .safeAreaInset(edge: .bottom) {
       DecisionBar(model: model, current: current)
     }
+    // On the poster's color the text switches to whichever appearance reads on it; the
+    // accent-colored links and buttons take the text color (the accent has no guaranteed
+    // contrast against an arbitrary background); and secondary text (`.detailSecondary`) is
+    // a stronger shade than the system's, which the palette's contrast check assumes.
+    .tint(palette == nil ? nil : Color.primary)
+    .environment(\.detailPalette, palette)
+    .environment(\.colorScheme, palette?.colorScheme ?? systemScheme)
+    .toolbarColorScheme(palette?.colorScheme, for: .navigationBar)
+    .animation(.easeInOut(duration: 0.25), value: palette)
+    .task(id: info.posterPath) {
+      palette = await loadPosterPalette(path: info.posterPath)
+    }
     .sensoryFeedback(.success, trigger: model.savedCount)
   }
+}
+
+nonisolated extension EnvironmentValues {
+  /// The poster palette the detail screen is drawn on; `nil` on the system background.
+  @Entry var detailPalette: DetailPalette?
+}
+
+/// Secondary text on the detail screen: the system's secondary label normally, and the text
+/// color at `DetailPalette.secondaryOpacity` on a poster-colored background (where the
+/// system's is too faint).
+nonisolated struct DetailSecondaryStyle: ShapeStyle {
+  func resolve(in environment: EnvironmentValues) -> some ShapeStyle {
+    environment.detailPalette == nil
+      ? AnyShapeStyle(.secondary)
+      : AnyShapeStyle(Color.primary.opacity(DetailPalette.secondaryOpacity))
+  }
+}
+
+extension ShapeStyle where Self == DetailSecondaryStyle {
+  nonisolated static var detailSecondary: DetailSecondaryStyle { DetailSecondaryStyle() }
 }
 
 private struct DetailSection<Content: View>: View {
@@ -105,7 +141,7 @@ private struct WhereToWatch: View {
     VStack(alignment: .leading, spacing: 10) {
       if info.providers.isEmpty {
         Text("Not available to stream in the US right now.")
-          .foregroundStyle(.secondary)
+          .foregroundStyle(.detailSecondary)
       } else {
         FlowLayout(spacing: 8) {
           ForEach(info.providers) { provider in
@@ -125,7 +161,7 @@ private struct WhereToWatch: View {
       }
       Text("Streaming availability from JustWatch.")
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(.detailSecondary)
     }
   }
 }
@@ -150,7 +186,7 @@ private struct ProviderChip: View {
         if let label = provider.label {
           Text(label)
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.detailSecondary)
         }
       }
     }
@@ -196,7 +232,7 @@ private struct DecisionBar: View {
         HStack {
           Label(failure.message, systemImage: "exclamationmark.triangle")
             .font(.subheadline)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.detailSecondary)
           Spacer()
           Button("Retry", action: model.retry)
             .buttonStyle(.bordered)
@@ -230,20 +266,26 @@ private struct DecisionButton: View {
   let isSelected: Bool
   let isSaving: Bool
   let action: () -> Void
+  @Environment(\.detailPalette) private var palette
+
+  /// On a poster-colored screen the selected button is filled with the text color, so its
+  /// label takes the background color — the pair the palette guarantees contrast for.
+  /// `nil` leaves the button style's own label color.
+  private var selectedLabel: Color? {
+    guard isSelected, let palette else { return nil }
+    return Color(palette.background)
+  }
 
   var body: some View {
     let badge = DecisionBadge(choice)
     let button = Button(action: action) {
-      HStack(spacing: 6) {
-        if isSaving {
-          ProgressView()
-            .controlSize(.small)
-        } else if let badge {
-          Image(systemName: badge.symbol)
-        }
-        Text(badge?.label ?? "")
+      // Only overridden when needed: otherwise the button style colors its own label.
+      if let selectedLabel {
+        label(badge)
+          .foregroundStyle(selectedLabel)
+      } else {
+        label(badge)
       }
-      .frame(maxWidth: .infinity)
     }
     .controlSize(.large)
     .accessibilityLabel(decisionAccessibilityLabel(choice))
@@ -254,5 +296,19 @@ private struct DecisionButton: View {
     } else {
       button.buttonStyle(.bordered)
     }
+  }
+
+  private func label(_ badge: DecisionBadge?) -> some View {
+    HStack(spacing: 6) {
+      if isSaving {
+        ProgressView()
+          .controlSize(.small)
+          .tint(selectedLabel)
+      } else if let badge {
+        Image(systemName: badge.symbol)
+      }
+      Text(badge?.label ?? "")
+    }
+    .frame(maxWidth: .infinity)
   }
 }

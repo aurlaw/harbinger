@@ -68,9 +68,11 @@ private struct WatchedList: View {
             .foregroundStyle(.primary)
           }
         }
-      } footer: {
+      } header: {
+        // How many films the list below is showing, after the filters and search.
         if !films.isEmpty {
           Text(watchedCountText(rows.count))
+            .textCase(nil)
         }
       }
     }
