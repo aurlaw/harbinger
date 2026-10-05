@@ -22,6 +22,9 @@ nonisolated struct SyncResult: Sendable, Equatable {
 nonisolated protocol SyncServicing: Sendable {
   func sync() async throws(SyncError) -> SyncResult
   func resetAndSync() async throws(SyncError) -> SyncResult
+  /// Returns whether the watched list was fetched (and replaced).
+  @discardableResult
+  func refreshWatched(force: Bool) async throws(SyncError) -> Bool
 }
 
 /// The only writer to the cache. Pulls `/sync`, upserts by id, and advances the cursor in
@@ -141,6 +144,72 @@ actor SyncService: ModelActor, SyncServicing {
     }
   }
 
+  // MARK: - Watched
+
+  /// Replaces the cached watched list from `GET /library/watched`.
+  ///
+  /// Not forced: fetches only when an import exists and the cached list wasn't fetched for
+  /// it (`SyncState.lastImportAt != watchedImportAt`) — the list changes only on import, so
+  /// this is a no-op after most syncs. Forced: always fetches. On any failure the cached
+  /// rows and the marker are unchanged.
+  @discardableResult
+  func refreshWatched(force: Bool) async throws(SyncError) -> Bool {
+    if !force {
+      let state: SyncState?
+      do {
+        state = try syncState()
+      } catch {
+        throw .store(String(describing: error))
+      }
+      guard let lastImportAt = state?.lastImportAt, lastImportAt != state?.watchedImportAt
+      else { return false }
+    }
+
+    let response: WatchedResponse
+    do {
+      response = try await client.watched()
+    } catch {
+      log.error("Watched request failed: \(String(describing: error), privacy: .public)")
+      throw .api(error)
+    }
+
+    do {
+      try replaceWatched(with: response.films)
+      let state = try syncState() ?? insertSyncState()
+      state.watchedImportAt = response.lastImportAt
+      try beforeSave?()
+      try modelContext.save()
+      log.info("Watched saved: \(response.films.count) films")
+      return true
+    } catch {
+      modelContext.rollback()
+      log.error("Watched rolled back: \(String(describing: error), privacy: .public)")
+      throw .store(String(describing: error))
+    }
+  }
+
+  /// Wholesale replace, by key: update or insert each film, then delete the rest. (Never a
+  /// delete-all followed by inserts of the same unique keys in one save.)
+  private func replaceWatched(with films: [WatchedFilm]) throws {
+    var cached: [String: CachedWatchedFilm] = [:]
+    for row in try modelContext.fetch(FetchDescriptor<CachedWatchedFilm>()) {
+      cached[row.letterboxdURI] = row
+    }
+    for film in films {
+      let row = cached.removeValue(forKey: film.letterboxdUri) ?? insertWatched(film)
+      row.apply(film)
+    }
+    for row in cached.values {
+      modelContext.delete(row)
+    }
+  }
+
+  private func insertWatched(_ film: WatchedFilm) -> CachedWatchedFilm {
+    let row = CachedWatchedFilm(letterboxdURI: film.letterboxdUri)
+    modelContext.insert(row)
+    return row
+  }
+
   // MARK: - Ingest (write responses; the cursor is not advanced)
 
   /// A new chat turn: the conversation, its messages, and their nested recommendations.
@@ -204,6 +273,8 @@ actor SyncService: ModelActor, SyncServicing {
     try deleteEvery(CachedConversation.self)
     try deleteEvery(CachedDecision.self)
     try deleteEvery(CachedTasteProfile.self)
+    // With `SyncState` (and its `watchedImportAt`) gone, the next sync refetches the list.
+    try deleteEvery(CachedWatchedFilm.self)
     try deleteEvery(SyncState.self)
   }
 

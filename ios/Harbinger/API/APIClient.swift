@@ -23,6 +23,8 @@ nonisolated protocol APIClient: Sendable {
   func sync(since: String?) async throws(APIError) -> SyncResponse
   /// The track record: how past picks that have since been rated landed.
   func outcomeStats() async throws(APIError) -> OutcomeStats
+  /// Every watched film, for the Watched tab's cache.
+  func watched() async throws(APIError) -> WatchedResponse
 }
 
 /// Per-request timeouts. A chat turn or draft can take a minute+ (Claude + TMDB + replacements).
@@ -125,6 +127,10 @@ nonisolated final class URLSessionAPIClient: APIClient {
 
   func outcomeStats() async throws(APIError) -> OutcomeStats {
     try await send(request("GET", ["stats", "outcomes"], timeout: RequestTimeout.standard))
+  }
+
+  func watched() async throws(APIError) -> WatchedResponse {
+    try await send(request("GET", ["library", "watched"], timeout: RequestTimeout.standard))
   }
 
   // MARK: - Plumbing

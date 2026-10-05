@@ -380,8 +380,36 @@ final class OutcomeScript: Sendable {
   }
 }
 
+/// Scripts `watched`: counts the calls and answers with the next queued result.
+final class WatchedScript: Sendable {
+  private struct State {
+    var calls = 0
+    var results: [Result<WatchedResponse, APIError>]
+  }
+
+  private let state: Mutex<State>
+
+  init(_ results: [Result<WatchedResponse, APIError>] = []) {
+    self.state = Mutex(State(results: results))
+  }
+
+  var calls: Int { state.withLock { $0.calls } }
+
+  func enqueue(_ result: Result<WatchedResponse, APIError>) {
+    state.withLock { $0.results.append(result) }
+  }
+
+  fileprivate func next() -> Result<WatchedResponse, APIError> {
+    state.withLock { state in
+      state.calls += 1
+      return state.results.isEmpty ? .failure(.invalidResponse) : state.results.removeFirst()
+    }
+  }
+}
+
 /// `health()`, `sync(since:)`, `models()`, chat turns, decisions, conversation rename /
-/// delete, taste-profile draft / save, and outcome stats are scripted; everything else fails.
+/// delete, taste-profile draft / save, outcome stats, and the watched list are scripted;
+/// everything else fails.
 final class FakeAPIClient: APIClient {
   let connection: Connection
   let recorder: HealthRecorder
@@ -391,12 +419,13 @@ final class FakeAPIClient: APIClient {
   let management: ManagementScript?
   let profiles: ProfileScript?
   let outcomes: OutcomeScript?
+  let watchedFilms: WatchedScript?
 
   init(
     connection: Connection, recorder: HealthRecorder, syncs: SyncRecorder? = nil,
     turns: TurnScript? = nil, decisions: DecisionScript? = nil,
     management: ManagementScript? = nil, profiles: ProfileScript? = nil,
-    outcomes: OutcomeScript? = nil
+    outcomes: OutcomeScript? = nil, watched: WatchedScript? = nil
   ) {
     self.connection = connection
     self.recorder = recorder
@@ -406,18 +435,20 @@ final class FakeAPIClient: APIClient {
     self.management = management
     self.profiles = profiles
     self.outcomes = outcomes
+    self.watchedFilms = watched
   }
 
   convenience init(
     syncs: SyncRecorder = SyncRecorder(), turns: TurnScript? = nil,
     decisions: DecisionScript? = nil, management: ManagementScript? = nil,
-    profiles: ProfileScript? = nil, outcomes: OutcomeScript? = nil
+    profiles: ProfileScript? = nil, outcomes: OutcomeScript? = nil,
+    watched: WatchedScript? = nil
   ) {
     self.init(
       connection: Connection(baseURL: testBaseURL, apiKey: testAPIKey),
       recorder: HealthRecorder(result: .success(HealthResponse(status: "ok"))), syncs: syncs,
       turns: turns, decisions: decisions, management: management, profiles: profiles,
-      outcomes: outcomes)
+      outcomes: outcomes, watched: watched)
   }
 
   func health() async throws(APIError) -> HealthResponse {
@@ -476,6 +507,10 @@ final class FakeAPIClient: APIClient {
   func outcomeStats() async throws(APIError) -> OutcomeStats {
     guard let outcomes else { throw .invalidResponse }
     return try await outcomes.next().get()
+  }
+  func watched() async throws(APIError) -> WatchedResponse {
+    guard let watchedFilms else { throw .invalidResponse }
+    return try watchedFilms.next().get()
   }
 }
 

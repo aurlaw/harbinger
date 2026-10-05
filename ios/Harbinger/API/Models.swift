@@ -300,6 +300,35 @@ nonisolated struct Outcome: Codable, Sendable, Hashable {
   let firstRecommendedAt: Date
 }
 
+// MARK: - Watched (`GET /library/watched`)
+
+nonisolated struct WatchedResponse: Codable, Sendable, Equatable {
+  /// The import this list reflects; `nil` when nothing has been imported.
+  let lastImportAt: Date?
+  let films: [WatchedFilm]
+}
+
+/// One watched film (any genre), cross-referenced by the Worker.
+nonisolated struct WatchedFilm: Codable, Sendable, Equatable {
+  /// The film's Letterboxd page; present for unmatched films too.
+  let letterboxdUri: String
+  /// `nil` when the film never matched on TMDB.
+  let tmdbId: Int?
+  /// The Letterboxd title as exported.
+  let title: String
+  let year: Int?
+  /// `nil` when unrated.
+  let halfStars: Int?
+  /// `YYYY-MM-DD`: the day it was marked watched on Letterboxd — a calendar date, not an
+  /// instant, and not a viewing date. Kept as the exact string. The Worker's column is
+  /// nullable.
+  let loggedOn: String?
+  let posterPath: String?
+  let isHorror: Bool
+  let harbingerPick: Bool
+  let firstRecommendedAt: Date?
+}
+
 // MARK: - Request bodies
 
 nonisolated struct CreateConversationBody: Codable, Sendable, Equatable {

@@ -17,6 +17,9 @@ final class SyncController {
   private(set) var lastError: String?
   /// The failure behind `lastError`, for the list's inline notice.
   private(set) var lastFailure: SyncError?
+  /// The last watched-list refresh failed (the cached list is kept); cleared by the next
+  /// refresh that succeeds. For the Watched tab's inline notice.
+  private(set) var watchedFailure: SyncError?
 
   private var service: (any SyncServicing)?
   private let now: () -> Date
@@ -34,6 +37,7 @@ final class SyncController {
     lastSuccess = nil
     lastError = nil
     lastFailure = nil
+    watchedFailure = nil
   }
 
   /// Launch and foreground: syncs unless one succeeded within `minimumInterval`.
@@ -64,7 +68,13 @@ final class SyncController {
     await run(rebuild: true)
   }
 
-  private func run(rebuild: Bool) async {
+  /// Pull-to-refresh on the Watched tab: syncs, then fetches the watched list whether or
+  /// not an import happened.
+  func refreshWatched() async {
+    await run(rebuild: false, forceWatched: true)
+  }
+
+  private func run(rebuild: Bool, forceWatched: Bool = false) async {
     guard let service else { return }
     running += 1
     isSyncing = true
@@ -80,6 +90,15 @@ final class SyncController {
     } catch {
       lastError = Self.message(for: error)
       lastFailure = error
+      // A failed sync never triggers the routine refresh; a pull on Watched still tries.
+      guard forceWatched else { return }
+    }
+    // After every successful sync: a no-op unless a new import happened.
+    do {
+      _ = try await service.refreshWatched(force: forceWatched)
+      watchedFailure = nil
+    } catch {
+      watchedFailure = error
     }
   }
 

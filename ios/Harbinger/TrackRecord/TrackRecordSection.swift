@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The Track record section of the Settings form: how past picks landed.
+/// The track record's rows (in `TrackRecordView`'s form): how past picks landed.
 struct TrackRecordSection: View {
   let model: TrackRecordModel
 

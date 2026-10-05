@@ -135,6 +135,9 @@ final class AppSession {
   let client: any APIClient
   let syncService: SyncService
   let sync: SyncController
+  /// The track record (fetched, never cached), shared by the Watched tab's summary row and
+  /// the full track-record screen.
+  let trackRecord: TrackRecordModel
 
   /// From `GET /models`, once per session; `nil` until loaded or if loading failed.
   private(set) var defaultModel: String?
@@ -187,6 +190,7 @@ final class AppSession {
     self.client = client
     self.syncService = syncService
     self.sync = sync
+    self.trackRecord = TrackRecordModel(client: client)
     self.open = open
     self.modelPreference = modelPreference
     self.savedModel = modelPreference.model()

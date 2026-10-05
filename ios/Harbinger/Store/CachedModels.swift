@@ -103,6 +103,27 @@ nonisolated final class CachedDecision {
   }
 }
 
+/// A watched film from `GET /library/watched`. Read-only library data: replaced wholesale
+/// from the server, never edited locally.
+@Model
+nonisolated final class CachedWatchedFilm {
+  @Attribute(.unique) var letterboxdURI: String
+  var tmdbID: Int?
+  var title: String = ""
+  var year: Int?
+  var halfStars: Int?
+  /// `YYYY-MM-DD` (sorts correctly as a string); empty when the export had no date.
+  var loggedOn: String = ""
+  var posterPath: String?
+  var isHorror: Bool = false
+  var harbingerPick: Bool = false
+  var firstRecommendedAt: Date?
+
+  init(letterboxdURI: String) {
+    self.letterboxdURI = letterboxdURI
+  }
+}
+
 /// Single row.
 @Model
 nonisolated final class CachedTasteProfile {
@@ -128,6 +149,8 @@ nonisolated final class SyncState {
   var nextSince: String?
   var lastSyncedAt: Date?
   var lastImportAt: Date?
+  /// The `last_import_at` the cached watched list was fetched for; `nil` when there is none.
+  var watchedImportAt: Date?
 
   init() {
     self.key = Self.key

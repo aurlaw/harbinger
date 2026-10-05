@@ -345,7 +345,8 @@ struct RecentOutcomesTests {
 // MARK: - Screens
 
 extension ScreenSmokeTests {
-  @Test func settingsRendersTheTrackRecord() async throws {
+  /// The track record moved to the Watched tab (I11): Settings neither shows nor loads it.
+  @Test func settingsNoLongerLoadsTheTrackRecord() async throws {
     let container = try CacheStore.inMemory()
     let stats = try decodeFixture(OutcomeStats.self, Fixtures.outcomeStats)
     let script = OutcomeScript([.success(stats)])
@@ -360,8 +361,15 @@ extension ScreenSmokeTests {
       NavigationStack { SettingsView(session: session, editor: nil) }
         .environment(session)
         .modelContainer(container))
+    #expect(script.calls == 0)
 
+    // Its new home: the screen behind `Route.trackRecord`, with the I7 content.
+    try await render(
+      NavigationStack { RouteDestination(route: .trackRecord, session: session) }
+        .environment(session)
+        .modelContainer(container))
     #expect(script.calls == 1)
+    #expect(session.trackRecord.content == .stats(stats))
   }
 
   @Test func recentOutcomesRenders() async throws {

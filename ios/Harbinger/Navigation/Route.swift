@@ -9,7 +9,9 @@ nonisolated enum Route: Hashable, Sendable {
   case recommendation(String)
   /// The taste profile editor, pushed from Settings.
   case tasteProfile
-  /// The track record's recent outcomes, pushed from Settings. Carries the list itself:
+  /// The full track record, pushed from the Watched tab's summary row.
+  case trackRecord
+  /// The track record's recent outcomes, pushed from the track record. Carries the list itself:
   /// outcomes are fetched, not cached, so there is nothing to look up by id.
   case recentOutcomes([Outcome])
 }
@@ -29,6 +31,8 @@ struct RouteDestination: View {
       PickDetailView(recommendationID: id)
     case .tasteProfile:
       TasteProfileEditorView(session: session)
+    case .trackRecord:
+      TrackRecordView(model: session.trackRecord)
     case .recentOutcomes(let outcomes):
       RecentOutcomesView(outcomes: outcomes)
     }

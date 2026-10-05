@@ -95,6 +95,20 @@ nonisolated extension CachedDecision {
   }
 }
 
+nonisolated extension CachedWatchedFilm {
+  func apply(_ dto: WatchedFilm) {
+    tmdbID = dto.tmdbId
+    title = dto.title
+    year = dto.year
+    halfStars = dto.halfStars
+    loggedOn = dto.loggedOn ?? ""
+    posterPath = dto.posterPath
+    isHorror = dto.isHorror
+    harbingerPick = dto.harbingerPick
+    firstRecommendedAt = dto.firstRecommendedAt
+  }
+}
+
 nonisolated extension CachedTasteProfile {
   func apply(_ dto: TasteProfile) {
     content = dto.content

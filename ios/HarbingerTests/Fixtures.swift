@@ -134,6 +134,23 @@ enum Fixtures {
       "hit_rate": null, "average_half_stars": null, "by_model": [], "recent": [] }
     """
 
+  /// `GET /library/watched` in the Worker's shape (`worker/src/library/watched.ts`).
+  static let watched = """
+    { "last_import_at": "2026-09-24T22:10:00.000Z",
+      "films": [
+        { "letterboxd_uri": "https://boxd.it/aaaa", "tmdb_id": 12345, "title": "Noroi: The Curse",
+          "year": 2005, "half_stars": 9, "logged_on": "2026-10-01", "poster_path": "/noroi.jpg",
+          "is_horror": true, "harbinger_pick": true,
+          "first_recommended_at": "2026-09-29T18:01:30.456Z" },
+        { "letterboxd_uri": "https://boxd.it/2BUo", "tmdb_id": 123, "title": "Jack Reacher",
+          "year": 2012, "half_stars": 6, "logged_on": "2021-03-11", "poster_path": "/abc.jpg",
+          "is_horror": false, "harbinger_pick": false, "first_recommended_at": null },
+        { "letterboxd_uri": "https://boxd.it/zzzz", "tmdb_id": null, "title": "Obscure",
+          "year": 1972, "half_stars": null, "logged_on": null, "poster_path": null,
+          "is_horror": false, "harbinger_pick": false, "first_recommended_at": null }
+      ] }
+    """
+
   static func error(_ code: String, _ message: String = "Something went wrong") -> String {
     #"{ "error": { "code": "\#(code)", "message": "\#(message)" } }"#
   }

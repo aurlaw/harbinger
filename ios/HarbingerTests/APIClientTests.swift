@@ -81,6 +81,9 @@ struct APIClientTests {
     EndpointCase(
       name: "outcomeStats", method: "GET", path: "/stats/outcomes", timeout: 30, body: nil,
       response: Fixtures.outcomeStats, call: { _ = try await $0.outcomeStats() }),
+    EndpointCase(
+      name: "watched", method: "GET", path: "/library/watched", timeout: 30, body: nil,
+      response: Fixtures.watched, call: { _ = try await $0.watched() }),
   ]
 
   let client = URLSessionAPIClient(

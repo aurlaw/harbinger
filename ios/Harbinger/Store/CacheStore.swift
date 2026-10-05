@@ -7,7 +7,7 @@ nonisolated enum CacheStore {
   static func schema() -> Schema {
     Schema([
       CachedConversation.self, CachedMessage.self, CachedRecommendation.self,
-      CachedDecision.self, CachedTasteProfile.self, SyncState.self,
+      CachedDecision.self, CachedTasteProfile.self, SyncState.self, CachedWatchedFilm.self,
     ])
   }
 

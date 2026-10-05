@@ -14,7 +14,7 @@ nonisolated enum TrackRecordContent: Equatable, Sendable {
   case stats(OutcomeStats)
 }
 
-/// The track record behind Settings. Fetched, never cached: the stats are derived on the
+/// The track record, owned by the session. Fetched, never cached: the stats are derived on the
 /// server from ratings that change only on import, and are looked at only occasionally.
 @Observable
 final class TrackRecordModel {
@@ -42,7 +42,8 @@ final class TrackRecordModel {
     stats == nil ? nil : error
   }
 
-  /// Runs when Settings appears and on its pull-to-refresh. A call made while one is in
+  /// Runs when the Watched tab or the track-record screen appears, and on their
+  /// pull-to-refresh. A call made while one is in
   /// flight does nothing.
   func load() async {
     guard !isLoading else { return }

@@ -133,12 +133,15 @@ final class SaveFailure: Sendable {
   }
 }
 
-/// A sync service that only counts calls (`calls` for `sync()`, `resets` for `resetAndSync()`).
+/// A sync service that only counts calls (`calls` for `sync()`, `resets` for
+/// `resetAndSync()`, `watchedForces` for each `refreshWatched(force:)`).
 final class FakeSyncService: SyncServicing {
   private struct State {
     var calls = 0
     var resets = 0
     var result: Result<SyncResult, SyncError>
+    var watchedForces: [Bool] = []
+    var watchedError: SyncError?
   }
 
   private let state: Mutex<State>
@@ -150,8 +153,25 @@ final class FakeSyncService: SyncServicing {
   var calls: Int { state.withLock { $0.calls } }
   var resets: Int { state.withLock { $0.resets } }
 
+  /// One entry per `refreshWatched(force:)`, in order.
+  var watchedForces: [Bool] { state.withLock { $0.watchedForces } }
+
   func set(_ result: Result<SyncResult, SyncError>) {
     state.withLock { $0.result = result }
+  }
+
+  /// `nil` makes watched refreshes succeed.
+  func setWatchedError(_ error: SyncError?) {
+    state.withLock { $0.watchedError = error }
+  }
+
+  func refreshWatched(force: Bool) async throws(SyncError) -> Bool {
+    let error = state.withLock { state -> SyncError? in
+      state.watchedForces.append(force)
+      return state.watchedError
+    }
+    if let error { throw error }
+    return force
   }
 
   func sync() async throws(SyncError) -> SyncResult {

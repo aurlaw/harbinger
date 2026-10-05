@@ -37,7 +37,7 @@ struct AppTabView: View {
       .badge(badge.map { Text(String($0)) })
       Tab(AppTab.watched.title, systemImage: AppTab.watched.symbol, value: AppTab.watched) {
         NavigationStack(path: $navigation.watchedPath) {
-          WatchedPlaceholder()
+          WatchedView()
             .routeDestinations(session: session)
         }
       }
@@ -49,14 +49,5 @@ struct AppTabView: View {
       }
     }
     .tabBarMinimizeBehavior(.onScrollDown)
-  }
-}
-
-/// Until the Watched screen exists (I11).
-private struct WatchedPlaceholder: View {
-  var body: some View {
-    ContentUnavailableView(
-      "Watched", systemImage: "film.stack",
-      description: Text("Your watched films will appear here."))
   }
 }

@@ -4,13 +4,11 @@ import SwiftUI
 /// Settings: one plain form. The taste profile editor is the only screen pushed from it.
 struct SettingsView: View {
   @State private var model: SettingsModel
-  @State private var trackRecord: TrackRecordModel
   @Query private var profiles: [CachedTasteProfile]
   @Query private var states: [SyncState]
 
   init(session: AppSession, editor: ConnectionEditor?) {
     _model = State(initialValue: SettingsModel(session: session, editor: editor))
-    _trackRecord = State(initialValue: TrackRecordModel(client: session.client))
   }
 
   var body: some View {
@@ -31,8 +29,6 @@ struct SettingsView: View {
             .foregroundStyle(.secondary)
         }
       }
-
-      TrackRecordSection(model: trackRecord)
 
       Section("Recommendations") {
         if let allowed = model.session.allowedModels {
@@ -119,9 +115,6 @@ struct SettingsView: View {
       }
     }
     .navigationTitle("Settings")
-    // Stats are fetched, not cached: load them each time Settings appears, and on pull.
-    .task { await trackRecord.load() }
-    .refreshable { await trackRecord.load() }
     .confirmationDialog(
       "Rebuild the cache?", isPresented: $model.isConfirmingRebuild, titleVisibility: .visible
     ) {
