@@ -12,6 +12,7 @@ import { errorResponse } from "./http";
 import { listFilms, setOverride, upsertFilms } from "./library/films";
 import { latestImport, runImport } from "./library/imports";
 import { recordMatches } from "./library/matches";
+import { listWatched } from "./library/watched";
 import { runRecentReleases } from "./recent/handlers";
 import { outcomeStats } from "./outcomes/handlers";
 import { movieDetails } from "./tmdb/movie";
@@ -35,6 +36,7 @@ const routes = new Map<string, Map<string, Handler>>([
   ["/library/films/override", new Map([["PUT", setOverride]])],
   ["/library/import", new Map([["POST", runImport]])],
   ["/library/imports/latest", new Map([["GET", latestImport]])],
+  ["/library/watched", new Map([["GET", listWatched]])],
   ["/tmdb/search", new Map([["GET", searchMovies]])],
   ["/models", new Map([["GET", listModels]])],
   ["/conversations", new Map([["POST", createConversation]])],
